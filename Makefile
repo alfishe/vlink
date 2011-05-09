@@ -18,6 +18,8 @@ INSTALL = install
 
 include make.rules
 
-install: vlink vlink.pdf
+install: vlink
 	$(INSTALL) -D vlink $(DESTDIR)/bin/vlink
+
+install-doc: vlink.pdf
 	$(INSTALL) -D vlink.pdf $(DESTDIR)/share/doc/vlink/vlink.pdf
