@@ -22,7 +22,7 @@ INSTALL = install
 
 include make.rules
 
-install: vlink
+install: $(TARGET)
 	$(INSTALL) -D $(TARGET) $(DESTDIR)/bin/$(TARGET)
 
 install-doc: vlink.pdf
