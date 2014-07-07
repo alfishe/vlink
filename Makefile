@@ -2,7 +2,11 @@
 
 DESTDIR ?= /usr/local
 
-TARGET = vlink
+ifdef COMSPEC
+X = .exe
+endif
+
+TARGET = vlink$X
 DIR = objects
 
 CC = gcc
