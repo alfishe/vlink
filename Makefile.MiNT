@@ -1,14 +1,14 @@
-# Standard Unix
+# Atari TOS/MiNT
 
-TARGET = vlink
-DIR = objects
+TARGET = vlink_mint
+DIR = MiNT
 
-CC = gcc
+CC = vc +mint
 CCOUT = -o $(DUMMYVARIABLE)	# produces the string "-o "
-COPTS = -std=c9x -O2 -fomit-frame-pointer -c
+COPTS = -DATARI -c99 -cpu=68020 -c -O1
 CONFIG =
 
-LD = gcc
+LD = vc +mint
 LDOUT = -o $(DUMMYVARIABLE)	# produces the string "-o "
 LDOPTS =
 LIBS =

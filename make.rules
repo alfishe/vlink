@@ -1,12 +1,13 @@
 vlinkobjects = $(DIR)/main.o $(DIR)/support.o $(DIR)/errors.o \
                $(DIR)/linker.o $(DIR)/dir.o $(DIR)/targets.o $(DIR)/ar.o \
                $(DIR)/ldscript.o $(DIR)/pmatch.o $(DIR)/expr.o \
-               $(DIR)/t_amigahunk.o $(DIR)/t_elf32.o $(DIR)/t_elf32ppcbe.o \
-               $(DIR)/t_elf32m68k.o $(DIR)/t_elf32i386.o \
-               $(DIR)/t_elf32arm.o $(DIR)/t_elf64.o \
+               $(DIR)/t_amigahunk.o $(DIR)/elf.o \
+               $(DIR)/t_elf32.o $(DIR)/t_elf64.o $(DIR)/t_elf64x86.o \
+               $(DIR)/t_elf32ppcbe.o $(DIR)/t_elf32m68k.o \
+               $(DIR)/t_elf32i386.o $(DIR)/t_elf32arm.o \
                $(DIR)/t_aout.o $(DIR)/t_aoutnull.o $(DIR)/t_aoutm68k.o \
                $(DIR)/t_aouti386.o $(DIR)/t_aoutmint.o $(DIR)/t_ataritos.o \
-               $(DIR)/t_rawbin.o $(DIR)/t_vobj.o
+               $(DIR)/t_rawbin.o $(DIR)/t_rawseg.o $(DIR)/t_vobj.o
 
 $(TARGET): $(vlinkobjects)
 	$(CC) $(CCOUT)$(DIR)/version.o $(COPTS) $(CONFIG) version.c
@@ -52,6 +53,9 @@ $(DIR)/expr.o: expr.c vlink.h config.h ldscript.h
 $(DIR)/t_amigahunk.o: t_amigahunk.c vlink.h config.h ar.h amigahunks.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_amigahunk.c
 
+$(DIR)/elf.o: elf.c vlink.h config.h ar.h elfcommon.h
+	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) elf.c
+
 $(DIR)/t_elf32.o: t_elf32.c vlink.h config.h ar.h elf32.h elfcommon.h stabdefs.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32.c
 
@@ -67,8 +71,11 @@ $(DIR)/t_elf32i386.o: t_elf32i386.c vlink.h config.h ar.h elf32.h elfcommon.h
 $(DIR)/t_elf32arm.o: t_elf32arm.c vlink.h config.h ar.h elf32.h elfcommon.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32arm.c
 
-$(DIR)/t_elf64.o: t_elf64.c vlink.h config.h ar.h elf64.h elfcommon.h
+$(DIR)/t_elf64.o: t_elf64.c vlink.h config.h ar.h elf64.h elfcommon.h stabdefs.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf64.c
+
+$(DIR)/t_elf64x86.o: t_elf64x86.c vlink.h config.h ar.h elf64.h elfcommon.h
+	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf64x86.c
 
 $(DIR)/t_aout.o: t_aout.c vlink.h config.h ar.h aout.h stabdefs.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_aout.c
@@ -88,8 +95,11 @@ $(DIR)/t_aoutmint.o: t_aoutmint.c vlink.h config.h ar.h aout.h tosdefs.h aoutmin
 $(DIR)/t_ataritos.o: t_ataritos.c vlink.h config.h ar.h tosdefs.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_ataritos.c
 
-$(DIR)/t_rawbin.o: t_rawbin.c vlink.h config.h ar.h
+$(DIR)/t_rawbin.o: t_rawbin.c vlink.h config.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_rawbin.c
+
+$(DIR)/t_rawseg.o: t_rawseg.c vlink.h config.h
+	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_rawseg.c
 
 $(DIR)/t_vobj.o: t_vobj.c vlink.h config.h ar.h vobj.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_vobj.c

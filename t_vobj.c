@@ -1,11 +1,11 @@
-/* $VER: vlink t_vobj.c V0.13 (02.11.10)
+/* $VER: vlink t_vobj.c V0.14d (12.02.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -194,23 +194,24 @@ static void vobj_check_ar_type(struct FFFuncs *ff,const char *name,uint8_t *p)
 }
 
 
-static taddr read_number(void)
+static taddr read_number(int is_signed)
 {
+  int bitcnt;
   taddr val;
   uint8_t n,*q;
-  int size;
 
   if ((n = *p++) <= 0x7f)
     return (taddr)n;
 
   val = 0;
   if (n -= 0x80) {
-    size = n << 3;
     p += n;
     q = p;
+    bitcnt = n << 3;
     while (n--)
       val = (val<<8) | *(--q);
-    val = sign_extend(val,size);
+    if (is_signed)
+      val = sign_extend(val,bitcnt);
   }
   return val;
 }
@@ -228,11 +229,11 @@ static void read_symbol(struct vobj_symbol *vsym)
 {
   vsym->name = (char *)p;
   skip_string();
-  vsym->type = (int)read_number();
-  vsym->flags = (int)read_number();
-  vsym->sec = (int)read_number();
-  vsym->val = read_number();
-  vsym->size = (int)read_number();
+  vsym->type = (int)read_number(0);
+  vsym->flags = (int)read_number(0);
+  vsym->sec = (int)read_number(0);
+  vsym->val = read_number(1);
+  vsym->size = (int)read_number(0);
 }
 
 
@@ -247,14 +248,14 @@ static void read_section(struct GlobalVars *gv,struct ObjectUnit *u,
   uint8_t flags = 0;
   uint8_t align,*data;
   char *attr;
-  char *name = p;
+  char *name = (char *)p;
   struct Reloc *last_reloc;
   int last_sym = -1;
   lword last_offs;
   uint16_t last_bpos = INVALID;
 
   skip_string();  /* section name */
-  for (attr=p; *attr; attr++) {
+  for (attr=(char *)p; *attr; attr++) {
     switch (tolower((unsigned char)*attr)) {
       case 'w': prot |= SP_WRITE; break;
       case 'x': prot |= SP_EXEC; break;
@@ -265,11 +266,11 @@ static void read_section(struct GlobalVars *gv,struct ObjectUnit *u,
     }
   }
   skip_string();
-  read_number();                  /* ignore flags */
-  align = (uint8_t)lshiftcnt(read_number());
-  dsize = read_number();          /* total size of section */
-  nrelocs = (int)read_number();   /* number of relocation entries */
-  fsize = read_number();          /* size in file, without 0-bytes */
+  read_number(0);                 /* ignore flags */
+  align = (uint8_t)lshiftcnt(read_number(0));
+  dsize = read_number(0);         /* total size of section */
+  nrelocs = (int)read_number(0);  /* number of relocation entries */
+  fsize = read_number(0);         /* size in file, without 0-bytes */
 
   if (type == ST_UDATA) {
     data = NULL;
@@ -296,13 +297,13 @@ static void read_section(struct GlobalVars *gv,struct ObjectUnit *u,
     int sym_idx;
 
     /* read one relocation entry */
-    type = (uint8_t)read_number();
-    offs = read_number();
-    bpos = (uint16_t)read_number();
-    bsiz = (uint16_t)read_number();
-    mask = read_number();
-    addend = read_number();
-    sym_idx = (int)read_number() - 1;  /* symbol index */
+    type = (uint8_t)read_number(0);
+    offs = read_number(0);
+    bpos = (uint16_t)read_number(0);
+    bsiz = (uint16_t)read_number(0);
+    mask = read_number(1);
+    addend = read_number(1);
+    sym_idx = (int)read_number(0) - 1;  /* symbol index */
     flags = 0;
 
     if (type>R_NONE && type<=LAST_STANDARD_RELOC &&
@@ -365,12 +366,12 @@ static void vobj_read(struct GlobalVars *gv,struct LinkFile *lf,uint8_t *data)
     vobj_check_ar_type(fff[lf->format],lf->pathname,data);
   }
   p = data + 5;  /* skip ID and endianess */
-  bpb = (int)read_number();  /* bits per byte */
+  bpb = (int)read_number(0);  /* bits per byte */
   if (bpb != 8) {
     /* bits per byte are not supported */
     error(113,lf->pathname,fff[lf->format]->tname,bpb);
   }
-  bpt = (int)read_number();  /* bytes per taddr */
+  bpt = (int)read_number(0);  /* bytes per taddr */
   if (bpt > sizeof(taddr)) {
     /* n bytes per target-address are not supported */
     error(114,lf->pathname,fff[lf->format]->tname,bpt);
@@ -378,8 +379,8 @@ static void vobj_read(struct GlobalVars *gv,struct LinkFile *lf,uint8_t *data)
   skip_string();  /* skip cpu-string */
 
   u = create_objunit(gv,lf,lf->objname);
-  nsecs = (int)read_number();  /* number of sections */
-  nsyms = (int)read_number();  /* number of symbols */
+  nsecs = (int)read_number(0);  /* number of sections */
+  nsyms = (int)read_number(0);  /* number of symbols */
 
   if (nsyms) {
     vsymbols = alloc(nsyms * sizeof(struct vobj_symbol));
@@ -405,6 +406,7 @@ static void vobj_read(struct GlobalVars *gv,struct LinkFile *lf,uint8_t *data)
 
     if (vs->flags & COMMON) {
       type = SYM_COMMON;
+      bind = SYMB_GLOBAL;  /* common symbols are always global */
       s = common_section(gv,u);
     }
     else if (vs->type == EXPRESSION) {

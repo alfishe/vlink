@@ -29,7 +29,7 @@ static struct {
   char *txt;
   int flags;
 } errors[] = {
-  /* startup, command line */
+  /* startup, command line, !!! are referenced dynamically - don't delete! */
   "",EF_NONE,
   "Out of memory",EF_FATAL,                                         /* 01 */
   "Unrecognized option '%s'",EF_WARNING,
@@ -54,15 +54,15 @@ static struct {
     "unsupported type %d",EF_FATAL,
   "%s (%s+0x%x): Reference to undefined symbol %s",EF_ERROR,
   "Attributes of section %s were changed from %s in %s to %s in %s",EF_WARNING,
-  "Alignment of section %s was changed from %d in %s to %d in %s",EF_WARNING,
+  "%s: %s expected",EF_FATAL,
   "%s (%s+0x%x): Illegal relative reference to %s+0x%llx",EF_ERROR, /* 24 */
   "%s (%s+0x%x): %dbit %s reference to %s+0x%llx (value to write: 0x%llx) "
     "out of range",EF_ERROR,
-  "%s (%s+0x%x): Referenced absolute symbol %s=0x%llx + 0x%llx "
+  "%s (%s+0x%x): Referenced absolute symbol %s=0x%llx + 0x%llx "    /* !!! */
     "(value to write: 0x%llx) doesn't fit into %d bits",EF_ERROR,
   "%s (%s+0x%x): Illegal relative reference to symbol %s",EF_ERROR,
   "%s (%s+0x%x): Relative reference to relocatable symbol %s=0x%llx + 0x%llx "
-    "(value to write: 0x%llx) doesn't fit into %d bits",EF_ERROR,
+    "(value to write: 0x%llx) doesn't fit into %d bits",EF_ERROR,   /* !!! */
   "Can't create output file %s",EF_ERROR,
   "%s (%s+0x%x): Absolute reference to relocatable symbol "         /* 30 */
     "%s=0x%llx + 0x%llx (value to write: 0x%llx) doesn't fit into %d bits",EF_ERROR,
@@ -73,7 +73,7 @@ static struct {
   "Option '%s' requires an argument",EF_FATAL,
   "%s (%s+0x%x): Calculated value 0x%llx doesn't fit into relocation "
     "type %s (offset=%d, size=%d, mask=0x%llx)",EF_ERROR,           /* 35 */
-  "%s (%s+0x%x): Base relative reference to relocatable symbol "
+  "%s (%s+0x%x): Base relative reference to relocatable symbol "    /* !!! */
     "%s=0x%llx + 0x%llx (value to write: 0x%llx) doesn't fit into %d bits",EF_ERROR,
   "%s: Malformatted archive member %s",EF_FATAL,
   "%s: Empty archive ignored",EF_WARNING,
@@ -118,7 +118,7 @@ static struct {
   "%s line %d: Unknown memory region <%s>",EF_ERROR,                /* 70 */
   "%s line %d: Multiple constructor types in output file",EF_ERROR,
   "UNUSED %s line %d: Syntax error",EF_ERROR,
-  "UNUSED %s line %d: Can't define symbols without a section",EF_ERROR,
+  "%s line %d: Assertion failed: %s",EF_FATAL,
   "%s line %d: SECTIONS block defined twice",EF_ERROR,
   "%s line %d: Segment %s is closed and can't be reused",EF_ERROR,  /* 75 */
   "%s line %d: Address overrides specified %cMA memory region",EF_WARNING,
@@ -127,10 +127,11 @@ static struct {
   "%s line %d: Undefined section: <%s>",EF_ERROR,
   "%s line %d: Section %s was assigned to more than one PT_LOAD "   /* 80 */
     "segment",EF_ERROR,
-  "First ELF segment (%s) doesn't contain first section (%s)",EF_FATAL,
+  "UNUSED First ELF segment (%s) doesn't contain first section (%s)",EF_FATAL,
   "Intermediate uninitialized sections in ELF segment <%s> (first=<%s>, "
     "last=<%s>) will be turned into initialized",EF_WARNING,
-  "%s: No load segment for the file header and PHDRS found",EF_FATAL,
+  "Section <%s> (0x%llx-0x%llx) conflicts with ELF segment <%s> "
+    "(currently: 0x%llx-0x%llx)",EF_ERROR,
   "%s: QMAGIC is deprecated and will no longer be supported",EF_ERROR,
   "%s: a.out %s table has illegal offset or size in %s",EF_FATAL,   /* 85 */
   "%s: a.out %s table size in <%s> is not a multiple of %d",EF_ERROR,

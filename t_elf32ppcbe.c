@@ -41,10 +41,10 @@ struct FFFuncs fff_elf32ppcbe = {
   ppc32be_identify,
   ppc32be_readconv,
   NULL,
-  elf32_targetlink,
+  elf_targetlink,
   NULL,
-  elf32_lnksym,
-  elf32_setlnksym,
+  elf_lnksym,
+  elf_setlnksym,
   elf32_initdynlink,
   ppc32be_dynentry,
   ppc32be_dyncreate,
@@ -108,7 +108,7 @@ struct FFFuncs fff_elf32morphos = {
   ppc32be_identify,
   ppc32be_readconv,
   NULL,
-  elf32_targetlink,
+  elf_targetlink,
   NULL,
   amiga_lnksym,
   amiga_setlnksym,
@@ -135,10 +135,10 @@ struct FFFuncs fff_elf32amigaos = {
   ppc32be_identify,
   ppc32be_readconv,
   NULL,
-  elf32_targetlink,
+  elf_targetlink,
   NULL,
-  elf32_lnksym,
-  elf32_setlnksym,
+  elf_lnksym,
+  elf_setlnksym,
   elf32_initdynlink,
   ppc32be_dynentry,
   ppc32be_dyncreate,
@@ -186,20 +186,18 @@ static int ppc32be_identify(char *name,uint8_t *p,unsigned long plen,bool lib)
   int id;
 
   /* first check for ancient PowerPC machine types */
-  if ((id = elf32_identify(&fff_elf32ppcbe,name,(struct Elf32_Ehdr *)p,
-                           plen,ELFCLASS32,ELFDATA2MSB,EM_CYGNUS_POWERPC,
-                           ELF_VER)) != ID_UNKNOWN)
-    return (id);
+  if ((id = elf_identify(&fff_elf32ppcbe,name,p,plen,ELFCLASS32,ELFDATA2MSB,
+                         EM_CYGNUS_POWERPC,ELF_VER)) != ID_UNKNOWN)
+    return id;
 
   /* EM_PPC_OLD is used in Motorola's libmoto.a, for example... */
-  if ((id = elf32_identify(&fff_elf32ppcbe,name,(struct Elf32_Ehdr *)p,
-                           plen,ELFCLASS32,ELFDATA2MSB,EM_PPC_OLD,
-                           ELF_VER)) != ID_UNKNOWN)
-    return (id);
+  if ((id = elf_identify(&fff_elf32ppcbe,name,p,plen,ELFCLASS32,ELFDATA2MSB,
+                         EM_PPC_OLD,ELF_VER)) != ID_UNKNOWN)
+    return id;
 
   /* the normal case: EM_PPC */
-  return (elf32_identify(&fff_elf32ppcbe,name,(struct Elf32_Ehdr *)p,plen,
-                         ELFCLASS32,ELFDATA2MSB,EM_PPC,ELF_VER));
+  return elf_identify(&fff_elf32ppcbe,name,p,plen,ELFCLASS32,ELFDATA2MSB,
+                       EM_PPC,ELF_VER);
 }
 
 
@@ -216,7 +214,7 @@ static uint8_t setupRI(uint8_t rtype,struct ELF2vlink *convert,
     ri2->bsiz = 16;
     ri2->mask = 0x8000;
   }
-  return (convert[rtype].rtype);
+  return convert[rtype].rtype;
 }
 
 
@@ -306,18 +304,18 @@ static uint8_t ppc32_reloc_elf2vlink(uint8_t rtype,struct RelocInsert *ri)
      bsiz to 0 and use the next-pointer as a special function pointer */
 
   if (rtype <= R_PPC_ADDR30)
-    return (setupRI(rtype,convertV4,ri,&ri2));
+    return setupRI(rtype,convertV4,ri,&ri2);
 
   else if (rtype>=R_PPC_EMB_NADDR32 && rtype<=R_PPC_EMB_RELSDA)
-    return (setupRI(rtype-R_PPC_EMB_NADDR32,convertEABI,ri,&ri2));
+    return setupRI(rtype-R_PPC_EMB_NADDR32,convertEABI,ri,&ri2);
 
   else if (rtype>=R_PPC_MORPHOS_DREL && rtype<=R_PPC_MORPHOS_DREL_HA)
-    return (setupRI(rtype-R_PPC_MORPHOS_DREL,convertMOS,ri,&ri2));
+    return setupRI(rtype-R_PPC_MORPHOS_DREL,convertMOS,ri,&ri2);
 
   else if (rtype>=R_PPC_AMIGAOS_BREL && rtype<=R_PPC_AMIGAOS_BREL_HA)
-    return (setupRI(rtype-R_PPC_AMIGAOS_BREL,convertAOS,ri,&ri2));
+    return setupRI(rtype-R_PPC_AMIGAOS_BREL,convertAOS,ri,&ri2);
 
-  return (R_NONE);
+  return R_NONE;
 }
 
 
@@ -330,10 +328,9 @@ static void ppc32be_readconv(struct GlobalVars *gv,struct LinkFile *lf)
     if (ar_init(&ai,(char *)lf->data,lf->length,lf->filename)) {
       while (ar_extract(&ai)) {
         lf->objname = allocstring(ai.name);
-        elf32_check_ar_type(fff[lf->format],lf->pathname,
-                            (struct Elf32_Ehdr *)ai.data,
-                            ELFCLASS32,ELFDATA2MSB,ELF_VER,
-                            3,EM_PPC,EM_PPC_OLD,EM_CYGNUS_POWERPC);
+        elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
+                          ELFCLASS32,ELFDATA2MSB,ELF_VER,
+                          3,EM_PPC,EM_PPC_OLD,EM_CYGNUS_POWERPC);
         elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,
                     ppc32_reloc_elf2vlink);
       }
@@ -363,8 +360,8 @@ static struct Symbol *ppc32be_dynentry(struct GlobalVars *gv,DynArg a,int etype)
       /* .got has 4 reserved words at the beginning,
          is writable and executable (contains a blrl in first word),
          a new entry occupies 1 word. */
-      sec = elf32_dyntable(gv,16,16,ST_DATA,SF_ALLOC,
-                           SP_READ|SP_WRITE|SP_EXEC,GOT_ENTRY);
+      sec = elf_dyntable(gv,16,16,ST_DATA,SF_ALLOC,SP_READ|SP_WRITE|SP_EXEC,
+                         GOT_ENTRY);
       entry_sym = elf32_pltgotentry(gv,sec,a,SYMI_OBJECT,4,4,etype);
       break;
 
@@ -372,8 +369,8 @@ static struct Symbol *ppc32be_dynentry(struct GlobalVars *gv,DynArg a,int etype)
       /* .plt has 18 reserved words at the beginning,
          is writable and executable, but uninitialized for PPC,
          a new entry occupies 2 words and 1 additional word at the end */
-      sec = elf32_dyntable(gv,72,72,ST_UDATA,SF_ALLOC|SF_UNINITIALIZED,
-                           SP_READ|SP_WRITE|SP_EXEC,PLT_ENTRY);
+      sec = elf_dyntable(gv,72,72,ST_UDATA,SF_ALLOC|SF_UNINITIALIZED,
+                         SP_READ|SP_WRITE|SP_EXEC,PLT_ENTRY);
       entry_sym = elf32_pltgotentry(gv,sec,a,SYMI_FUNC,8,12,PLT_ENTRY);
       break;
 
@@ -385,17 +382,17 @@ static struct Symbol *ppc32be_dynentry(struct GlobalVars *gv,DynArg a,int etype)
 
     case STR_ENTRY:
       /* enter StrTabList .dynstr */
-      elf32_adddynstr(a.name);
+      elf_adddynstr(a.name);
       break;
 
     case SYM_ENTRY:
       /* enter SymTabList .dynsym and name to .dynstr */
-      elf32_adddynsym(a.sym);
+      elf_adddynsym(a.sym);
       break;
 
     case SO_NEEDED:
       /* denote shared object's name as 'needed' */
-      elf32_dynamicentry(gv,DT_NEEDED,elf32_adddynstr(a.name),NULL);
+      elf32_dynamicentry(gv,DT_NEEDED,elf_adddynstr(a.name),NULL);
       break;
 
     default:
@@ -441,7 +438,7 @@ static struct Section *ddrelocs_sec(struct GlobalVars *gv,
   s->lnksec = ls;
   s->size = ls->size = 1; /* protect from deletion */
 
-  return (s);
+  return s;
 }
 
 
@@ -459,7 +456,7 @@ static int amiga_targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
       /* .sdata/.sbss, .sdata2/.sbss2, etc. are always combined */
       return (1);
   }
-  return (elf32_targetlink(gv,ls,s));
+  return elf_targetlink(gv,ls,s);
 }
 
 
@@ -492,46 +489,46 @@ static struct Symbol *amiga_lnksym(struct GlobalVars *gv,
         r13init->type = SYM_RELOC;
         r13init->extra = SYMX_SPECIAL|R13INIT;
       }
-      return (sym);  /* new linker symbol created */
+      return sym;  /* new linker symbol created */
     }
 
     else if (!strcmp(r13init_name,xref->xrefname)) {  /* __r13_init */
       sym = addlnksymbol(gv,r13init_name,(lword)fff[gv->dest_format]->baseoff,
                          SYM_RELOC,SYMF_LNKSYM,SYMI_OBJECT,SYMB_GLOBAL,0);
       sym->extra = SYMX_SPECIAL|R13INIT;
-      return (sym);  /* new linker symbol created */
+      return sym;  /* new linker symbol created */
     }
 
     else if (!strcmp(sdatasize,xref->xrefname)) {  /* __sdata_size */
       sym = addlnksymbol(gv,sdatasize,0,
                          SYM_ABS,SYMF_LNKSYM,SYMI_OBJECT,SYMB_GLOBAL,0);
       sym->extra = SYMX_SPECIAL|SDATASIZE;
-      return (sym);  /* new linker symbol created */
+      return sym;  /* new linker symbol created */
     }
 
     else if (!strcmp(sbsssize,xref->xrefname)) {  /* __sbss_size */
       sym = addlnksymbol(gv,sbsssize,0,
                          SYM_ABS,SYMF_LNKSYM,SYMI_OBJECT,SYMB_GLOBAL,0);
       sym->extra = SYMX_SPECIAL|SBSSSIZE;
-      return (sym);  /* new linker symbol created */
+      return sym;  /* new linker symbol created */
     }
 
     else if (!strcmp(ddrelocs,xref->xrefname)) {  /* __datadata_relocs */
       sym = addlnksymbol(gv,ddrelocs,0,
                          SYM_RELOC,SYMF_LNKSYM,SYMI_OBJECT,SYMB_GLOBAL,0);
       sym->extra = SYMX_SPECIAL|DDRELOCS;
-      return (sym);  /* new linker symbol created */
+      return sym;  /* new linker symbol created */
     }
 
     else if (!strcmp(textsize,xref->xrefname)) {  /* __text_size */
       sym = addlnksymbol(gv,textsize,0,
                          SYM_ABS,SYMF_LNKSYM,SYMI_OBJECT,SYMB_GLOBAL,0);
       sym->extra = SYMX_SPECIAL|TEXTSIZE;
-      return (sym);  /* new linker symbol created */
+      return sym;  /* new linker symbol created */
     }
   }
 
-  return (elf32_lnksym(gv,sec,xref));
+  return elf_lnksym(gv,sec,xref);
 }
 
 
@@ -565,7 +562,7 @@ static void amiga_setlnksym(struct GlobalVars *gv,struct Symbol *xdef)
     xdef->flags &= ~SYMF_LNKSYM;  /* do not init again */
   }
   else
-    elf32_setlnksym(gv,xdef);
+    elf_setlnksym(gv,xdef);
 }
 
 #endif /* ELF32_AMIGA */
@@ -779,7 +776,7 @@ static uint8_t ppc32_reloc_vlink2elf(struct Reloc *r)
     }
   }
 
-  return (rt);
+  return rt;
 }
 
 

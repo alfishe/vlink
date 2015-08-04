@@ -1,11 +1,11 @@
-/* $VER: vlink expr.c V0.13 (02.11.10)
+/* $VER: vlink expr.c V0.14a (20.07.12)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2012  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2012 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -301,7 +301,7 @@ static struct Expr *primary_expr(void)
             else
               error(105,scriptname,line);  /* No function-calls allowed here */
           }
-          else
+          else if (caddr != -2)
             error(104,scriptname,line,word);  /* Unknown symbol or function */
         }
       }

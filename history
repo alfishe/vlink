@@ -5,12 +5,94 @@ vlink history
 (elf):        general ELF changes
 (elf32ppc):   changes are relevant for ELF32-PowerPC only
 (elf32m68k):  changes are relevant for ELF32-M68k only
-(elf32i386):  changes are relevant for ELF32-386 only
 (elf32arm):   changes are relevant for ELF32-ARM only
+(elf32i386):  changes are relevant for ELF32-386 only
+(elf64x86):   changes are relevant for ELF64-x86_64 only
 (a.out):      general a.out changes
+(aoutmint):   changes are relevant for MiNT only
 (vobj):       changes for VOBJ format
 (tos):        changes for the Atari TOS format
 
+
+- 0.15 (28.12.14)
+o (ados/ehf) Support for SAS/C style indexed libraries (HUNK_LIB).
+o (ados/ehf) -Csasc is accepted to build a table with SAS/C constructors
+  and destructors. It looks for functions named __STI_... and __STD_...
+o (tos) New option -tos-textbased to write symbol offsets which are based
+  on the text section (MonST-comaptible).
+o (tos) text and data section size in the header must not be odd.
+o (aoutmint) text and data section size in the header must not be odd.
+
+- 0.14d (07.06.14)
+o (vobj) Fixed reading common symbols from VOBJ files.
+o (a.out) Fixed detection of Atari Jaguar MOVEI relocations.
+o (tos) Label values from the symbol table must be an offset to the section
+  they are defined in.
+
+- 0.14c (27.12.13)
+o (ados/ehf) Ignore FILE and SECTION symbols, when converting from a
+  different format. They have no meaning here.
+
+- 0.14b (31.08.13)
+o Fixed potential illegal memory accesses when reading unallocated
+  amigahunk/ehf or a.out BSS sections.
+o Also delete empty sections with symbols, provided they are unreferenced
+  and stripped.
+o Fixed symbol assignments in the linker script's section definitions.
+  Defining symbols before the first input section pattern didn't work.
+o Make sure that pc-relative relocations are resolved when the target symbol
+  is in the same output section, even when -q (keep relocs) is given.
+o New option -osec, which makes some target formats output each section
+  as an individual file. Currently valid for: rawbin1, rawbin2,
+  amsdos, cbmprg.
+  -osec=basename can be used to put "basename." in front of each output
+  file name (section name).
+o Allow '.' symbol in a linker script's MEMORY block, to refer to the
+  start address given by -Ttext.
+o (elf) Display an error when a section doesn't cleanly attach to a
+  program segment.
+o (a.out) Fixed reading of empty objects, without any symbols.
+o (aoutmint) Make sure that TOS symbol table length is zero, when there
+  are no symbols.
+o (vobj) Fixed sign-extension of relocation addends and masks. This had for
+  example the effect that 16-bit PC-relative overflows were not recognized.
+o (rawbin) Extended the default script (.rodata, COMMON, .comment).
+o (rawbin) Special default linker script for amsdos, supporting banks.
+
+- 0.14a (08.08.12)
+o New output format: amsdos, for Amstrad/Schneider CPC computers.
+o New output format: cbmprg, for Commodore 8-bit computers (PET, VIC-20,
+  64, etc.).
+o The output formats rawbin2, amsdos and cbmprg will use the section name
+  instead of the section's base address as file name appendix for
+  additional files.
+o When using a linker script the input sections will be grouped by type
+  (code, data, bss) when being merged into a pattern-matched output
+  section. This keeps uninitialized parts together and is required to
+  form data-bss sections.
+o The binary output formats will display a fatal error when sections are
+  overlapping. This could cause crashes or huge output files before.
+o Fixed syntax and type errors in dir.c when compiling for Windows
+  (introduced in 0.14).
+o New linker-script command: ASSERT(), to generate a fatal error when the
+  tested expression is zero.
+o New linker-script functions: MAX(a,b) and MIN(a,b) to return the
+  higher or lower of two values.
+o (ados/ehf) A section named "BSS" is no longer automatically merged with
+  other bss-type sections.
+o (vobj) Regard all information from an object as unsigned, except symbol
+  values and reloc addends and masks.
+
+- 0.14 (05.08.11)
+o (elf) Introduced a module with common functions for ELF32 and ELF64,
+  then added experimental ELF64 support. First ELF64 test target is:
+  elf64x86.
+o (ados/ehf) The new option -da forces the linker to allocate all PowerOpen
+  address symbols (@_sybmol) which point to an already known symbol, which
+  was only done before when generating an amigaehf executable.
+o Improved Unix path conversion into native AmigaOS or DOS format.
+o Runs on plain Atari TOS.
+o Add -dc and -dp as synonyms for -d (BSD ld compatibility).
 
 - 0.13 (01.12.10)
 o Fixed some NULL-pointer accesses when parsing bad linker scripts.

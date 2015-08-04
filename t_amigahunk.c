@@ -1,11 +1,11 @@
-/* $VER: vlink t_amigahunk.c V0.13 (02.11.10)
+/* $VER: vlink t_amigahunk.c V0.15 (23.12.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -28,6 +28,11 @@ struct HunkInfo {
   long hunkcnt;         /* remaining bytes in this file */
   const char *filename;
   bool exec;            /* executable file? */
+  uint8_t *libbase;     /* base address HUNK_LIB data (hunk data) */
+  uint8_t *indexbase;   /* HUNK_INDEX data base address */
+  uint8_t *indexptr;    /* current HUNK_INDEX data pointer */
+  long indexcnt;        /* remaining bytes in HUNK_INDEX */
+  long savedhunkcnt;    /* hunkcnt to restore after HUNK_LIB is parsed */
 };
 
 struct XRefNode {
@@ -86,7 +91,7 @@ struct FFFuncs fff_amigahunk = {
   ados_writeobject,
   writeshared,
   writeexec,
-  "BSS",NULL,
+  NULL,NULL,
   0,
   0x7ffe,
   0,
@@ -113,7 +118,7 @@ struct FFFuncs fff_ehf = {
   ehf_writeobject,
   writeshared,
   writeexec,
-  "BSS",NULL,
+  NULL,NULL,
   0,
   0x7ffe,
   0,
@@ -130,7 +135,7 @@ static char ehf_addrsym[] = "@_";
 
 static char *ados_symnames[] = {
   /* PhxAss */     "_DATA_BAS_","_DATA_LEN_","_BSS_LEN_",
-  /* SAS/StormC */ "_LinkerDB","__BSSBAS","__BSSLEN","__ctors","__dtors",
+  /* SAS/StormC */ "_LinkerDB","__BSSBAS","__BSSLEN","___ctors","___dtors",
   /* DICE-C */     "__DATA_BAS","__DATA_LEN","__BSS_LEN","__RESIDENT",
   /* GNU-C */      "___machtype","___text_size","___data_size","___bss_size",
   /* ELF */        "_SDA_BASE_","_SDA2_BASE_"
@@ -169,8 +174,8 @@ static int ados_identify(char *name,uint8_t *p,unsigned long plen,bool lib)
   int ff;
 
   if ((ff = identify(name,p,plen,lib)) >= 0)
-    return (ff);
-  return (ID_UNKNOWN);  /* ehf */
+    return ff;
+  return ID_UNKNOWN;  /* ehf */
 }
 
 
@@ -179,8 +184,8 @@ static int ehf_identify(char *name,uint8_t *p,unsigned long plen,bool lib)
   int ff;
 
   if ((ff = identify(name,p,plen,lib)) < 0)
-    return (-ff);
-  return (ff);  /* ados is a subset of ehf */
+    return -ff;
+  return ff;  /* ados is a subset of ehf */
 }
 
 
@@ -190,6 +195,7 @@ static void init_hunkinfo(struct HunkInfo *hi,const char *name,uint8_t *p,
   hi->hunkptr = hi->hunkbase = p;
   hi->hunkcnt = (long)plen;
   hi->filename = name;
+  hi->libbase = NULL;
   hi->exec = read32be(p) == HUNK_HEADER;  /* executable file? */
 }
 
@@ -231,13 +237,13 @@ static uint32_t testword32(struct HunkInfo *hi)
   if (hi->hunkcnt >= sizeof(uint32_t)) {
     uint32_t w = read32be(hi->hunkptr);
 
-    return (w ? w : INVALID);  /* provoke an error when 0-word was read */
+    return w ? w : INVALID;  /* provoke an error when 0-word was read */
   }
 #else
   if (hi->hunkcnt >= sizeof(uint32_t))
-    return (read32be(hi->hunkptr));
+    return read32be(hi->hunkptr);
 #endif
-  return (0);
+  return 0;
 }
 
 
@@ -250,7 +256,7 @@ static uint32_t nextword32(struct HunkInfo *hi)
     error(13,hi->filename);  /* File format corrupted */
   w = read32be(hi->hunkptr);
   hi->hunkptr += sizeof(uint32_t);
-  return (w);
+  return w;
 }
 
 
@@ -263,7 +269,7 @@ static uint16_t nextword16(struct HunkInfo *hi)
     error(13,hi->filename);  /* File format corrupted */
   w = read16be(hi->hunkptr);
   hi->hunkptr += sizeof(uint16_t);
-  return (w);
+  return w;
 }
 
 
@@ -356,7 +362,33 @@ static uint32_t skiphunk(struct HunkInfo *hi)
   }
 
   /* return next 32-bit word */
-  return (testword32(hi));
+  return testword32(hi);
+}
+
+
+static uint32_t readindex(struct HunkInfo *hi)
+{
+  uint16_t w;
+
+  if ((hi->indexcnt -= sizeof(uint16_t)) < 0)
+    error(13,hi->filename);  /* File format corrupted */
+  w = read16be(hi->indexptr);
+  hi->indexptr += sizeof(uint16_t);
+  return w;
+}
+
+
+static void skipindex(struct HunkInfo *hi,uint32_t off)
+{
+  if ((hi->indexcnt -= off) < 0)
+    error(13,hi->filename);  /* File format corrupted */
+  hi->indexptr += off;
+}
+
+
+const char *readstrpool(struct HunkInfo *hi)
+{
+  return allocstring(hi->indexbase + 2 + readindex(hi));
 }
 
 
@@ -369,15 +401,15 @@ static int identify(char *name,uint8_t *p,unsigned long plen,bool lib)
 
   if (w == HUNK_HEADER) {
     error(12,name);  /* file is already an executable */
-    return (ID_EXECUTABLE);  /* EHF-executables don't exist! */
+    return ID_EXECUTABLE;  /* EHF-executables don't exist! */
   }
   else if (w!=HUNK_UNIT && w!=HUNK_LIB)
-    return (ID_UNKNOWN);
+    return ID_UNKNOWN;
 
   /* @@@ EHF will never be in HUNK_LIB format, because HUNK_PPC_CODE */
   /* (0x4e9) conflicts with HUNK_CODE|(MEMB_CHIP<<14) = 0x7e9. @@@   */
   if (w == HUNK_LIB)
-    return (ID_LIBARCH);  /* SAS/C-style library */
+    return ID_LIBARCH;  /* SAS/C-style library */
 
   if (!lib) {
     /* Check, by comparing the suffix with ".LIB", if the units */
@@ -401,9 +433,9 @@ static int identify(char *name,uint8_t *p,unsigned long plen,bool lib)
   init_hunkinfo(&hi,name,p,plen);
   while (w = skiphunk(&hi)) {
     if (w == HUNK_PPC_CODE)
-      return (-type);  /* it's an EHF object/library, containing PPC code */
+      return -type;  /* it's an EHF object/library, containing PPC code */
   }
-  return (type);
+  return type;
 }
 
 
@@ -431,9 +463,9 @@ static bool addlongrelocs(struct GlobalVars *gv,struct HunkInfo *hi,
         addreloc(s,r,pos,size,mask);
       }
     }
-    return (TRUE);
+    return TRUE;
   }
-  return (FALSE);
+  return FALSE;
 }
 
 
@@ -456,9 +488,9 @@ static bool addshortrelocs32(struct GlobalVars *gv,struct HunkInfo *hi,
       }
     }
     alignhunkptr(hi);
-    return (TRUE);
+    return TRUE;
   }
-  return (FALSE);
+  return FALSE;
 }
 
 
@@ -474,7 +506,7 @@ static char *gethunkname(struct HunkInfo *hi)
     strncpy(s,(char *)hi->hunkptr,n<<2);
     movehunkptr32(hi,n);
   }
-  return (s);
+  return s;
 }
 
 
@@ -519,14 +551,14 @@ static bool create_debuginfo(struct GlobalVars *gv,struct HunkInfo *hi,
     }
     else /* too short... ignore */
       movehunkptr32(hi,len);
-    return (TRUE);
+    return TRUE;
   }
-  return (FALSE);
+  return FALSE;
 }
 
 
 static void create_xdef(struct GlobalVars *gv,struct Section *s,
-                        char *name,int32_t val,uint8_t type,uint8_t bind)
+                        const char *name,int32_t val,uint8_t type,uint8_t bind)
 /* add new symbol to the symbols list of the current object unit */
 {
   struct Symbol *sym;
@@ -592,343 +624,436 @@ static void readconv(struct GlobalVars *gv,struct LinkFile *lf)
   struct Section *s=NULL;
   char *secname=NULL;
   uint8_t *headerattr=NULL;
+  uint16_t hunksleft;
+  bool indexhunk=FALSE;
   uint32_t index=0;
 
   init_hunkinfo(&hi,lf->filename,lf->data,lf->length);
-  if (testword32(&hi) == HUNK_LIB) {
-    ierror("readconv(): HUNK_LIB not yet supported");
-  }
 
-  /* HUNK_UNIT or HUNK_HEADER */
-  else {
-    while (w = testword32(&hi)) {
-      switch (w & 0x3fffffff) {
+  while (w = testword32(&hi)) {
+    switch (w & 0x3fffffff) {
 
-        case HUNK_HEADER:
-          /* header must be at the beginning of the file */
-          if (hi.hunkptr == hi.hunkbase) {
-            if (!s) {
-              uint32_t n;
-              add_objunit(gv,u,TRUE); /* add last one to glob. ObjUnit list */
-              index = 0;
-              u = create_objunit(gv,lf,lf->filename);
-              nextword32(&hi);
-              n = nextword32(&hi);
-              movehunkptr32(&hi,n?n+2:1);
-              w = nextword32(&hi);
-              n = nextword32(&hi) - w + 1;  /* number of size specifiers */
-              headerattr = hi.hunkptr;  /* remember section attributes */
-              while (n--) {
-                if ((nextword32(&hi) & 0xc0000000) == 0xc0000000)
-                  nextword32(&hi);
-              }
-            }
-            else
-              /* Unexpected end of section */
-              error(15,lf->pathname,s->name,u->objname);
-          }
-          else
-            /* header appeared twice */
-            error(16,lf->pathname,"HUNK_HEADER",lf->filename);
-          break;
-
-        case HUNK_UNIT:  /* a new ObjectUnit */
+      case HUNK_HEADER:
+        /* header must be at the beginning of the file */
+        if (hi.hunkptr == hi.hunkbase) {
           if (!s) {
-            char *uname;
-            nextword32(&hi);
+            uint32_t n;
             add_objunit(gv,u,TRUE); /* add last one to glob. ObjUnit list */
             index = 0;
-            uname = gethunkname(&hi);
-            u = create_objunit(gv,lf,uname);
+            u = create_objunit(gv,lf,lf->filename);
+            u = NULL;
+            nextword32(&hi);
+            n = nextword32(&hi);
+            movehunkptr32(&hi,n?n+2:1);
+            w = nextword32(&hi);
+            n = nextword32(&hi) - w + 1;  /* number of size specifiers */
+            headerattr = hi.hunkptr;  /* remember section attributes */
+            while (n--) {
+              if ((nextword32(&hi) & 0xc0000000) == 0xc0000000)
+                nextword32(&hi);
+            }
           }
           else
             /* Unexpected end of section */
             error(15,lf->pathname,s->name,u->objname);
+        }
+        else
+          /* header appeared twice */
+          error(16,lf->pathname,"HUNK_HEADER",lf->filename);
+        break;
+
+      case HUNK_UNIT:  /* a new ObjectUnit */
+        if (!s) {
+          char *uname;
+          nextword32(&hi);
+          add_objunit(gv,u,TRUE); /* add last one to glob. ObjUnit list */
+          index = 0;
+          uname = gethunkname(&hi);
+          u = create_objunit(gv,lf,uname);
+        }
+        else
+          /* Unexpected end of section */
+          error(15,lf->pathname,s->name,u->objname);
+        break;
+
+      case HUNK_LIB:  /* indexed library */
+          if (s != NULL)
+            error(15,lf->pathname,s->name,u->objname);
+          nextword32(&hi);
+          add_objunit(gv,u,TRUE); /* add last one to glob. ObjUnit list */
+
+          /* Remember start of hunk definitions in HUNK_LIB and then
+             skip this hunk completely. A HUNK_INDEX should follow. */
+          w = nextword32(&hi);
+          hi.libbase = hi.hunkptr;
+          movehunkptr32(&hi,w);
+          if (nextword32(&hi) != HUNK_INDEX)
+            error(23,lf->pathname,"HUNK_INDEX");
+
+          /* prepare to parse the first unit from the index */
+          hi.indexcnt = nextword32(&hi) << 2;
+          hi.indexptr = hi.indexbase = hi.hunkptr;
+          hi.savedhunkcnt = hi.hunkcnt + hi.indexcnt;
+          skipindex(&hi,readindex(&hi));
+          indexhunk = TRUE;
+          hunksleft = 0;
           break;
 
-        case HUNK_NAME:  /* name of a section */
-          if (u && !s) {
-            nextword32(&hi);
-            secname = gethunkname(&hi);
-          }
-          else
-            /* misplaced hunk */
-            error(17,lf->pathname,"HUNK_NAME",u?u->objname:lf->filename);
+      case HUNK_INDEX:
+          error(17,lf->pathname,"HUNK_INDEX",u ? u->objname : lf->filename);
           break;
 
-        case HUNK_CODE:
-        case HUNK_PPC_CODE:
-        case HUNK_DATA:
-        case HUNK_BSS:
-          if (u && !s) {  /* a new Section */
-            uint8_t s_attr;
-            unsigned long s_size;
-            nextword32(&hi);
+      case HUNK_NAME:  /* name of a section */
+        if (u && !s) {
+          nextword32(&hi);
+          secname = gethunkname(&hi);
+        }
+        else
+          /* misplaced hunk */
+          error(17,lf->pathname,"HUNK_NAME",u?u->objname:lf->filename);
+        break;
 
-            /* determine section attributes */
-            if (headerattr) {
-              if ((s_attr = (read32be(headerattr)>>24) & 0xc0) == 0xc0) {
-                s_attr = 0;  /* ext. mem. type identifier is not supported */
-                headerattr += 8;
-              }
-              else
-                headerattr += 4;
+      case HUNK_CODE:
+      case HUNK_PPC_CODE:
+      case HUNK_DATA:
+      case HUNK_BSS:
+        if (u && !s) {  /* a new Section */
+          uint8_t s_attr;
+          unsigned long s_size;
+          nextword32(&hi);
+
+          /* determine section attributes */
+          if (headerattr) {
+            if ((s_attr = (read32be(headerattr)>>24) & 0xc0) == 0xc0) {
+              s_attr = 0;  /* ext. mem. type identifier is not supported */
+              headerattr += 8;
             }
             else
-              s_attr = (w>>24) & 0xc0;  /* SF_FAST | SF_CHIP */
+              headerattr += 4;
+          }
+          else
+            s_attr = (w>>24) & 0xc0;  /* SF_FAST | SF_CHIP */
 
-            if (gv->fix_unnamed==TRUE && !secname) {
-              /* assign a name according to the section's type */
-              switch (w & 0xffff) {
-                case HUNK_PPC_CODE:
-                case HUNK_CODE:
-                  secname = ".text";
-                  break;
-                case HUNK_DATA:
-                  secname = ".data";
-                  break;
-                case HUNK_BSS:
-                  secname = ".bss";
-                  break;
-              }
-            }
-            /* Sections of an executable should never be joined, or */
-            /* dangerous things will happen. */
-            if (!secname && hi.exec) {
-              secname = alloc(10);
-              sprintf(secname,"S%08lx",(unsigned long)hi.hunkptr);
-            }
-
-            /* create new section node */
-            s_size = (unsigned long)nextword32(&hi) & 0x3fffffff;
-            s = create_section(u,secname,hi.hunkptr,s_size<<2);
-            s->flags = s_attr | SF_ALLOC;
-            s->alignment = gv->min_alignment>2 ? gv->min_alignment : 2;
-            s->id = index++;
+          if (gv->fix_unnamed==TRUE &&
+              (secname==NULL || (secname!=NULL && *secname=='\0'))) {
+            /* assign a name according to the section's type */
             switch (w & 0xffff) {
               case HUNK_PPC_CODE:
-                s->flags |= SF_EHFPPC;  /* section contains PowerPC code */
               case HUNK_CODE:
-                s->type = ST_CODE;
-                /* @@@@ amigahunk/ehf code is always writeable ??? */
-                s->protection = SP_READ | /*SP_WRITE |*/ SP_EXEC;
+                secname = ".text";
                 break;
               case HUNK_DATA:
-                s->type = ST_DATA;
-                s->protection = SP_READ | SP_WRITE;
+                secname = ".data";
                 break;
               case HUNK_BSS:
-                s->flags |= SF_UNINITIALIZED;
-                s->data = NULL;
-                s->type = ST_UDATA;
-                s->protection = SP_READ | SP_WRITE;
+                secname = ".bss";
                 break;
             }
-            if (!(s->flags & SF_UNINITIALIZED))
-              movehunkptr32(&hi,s_size);  /* skip section's contents */
           }
-          else
-            /* Section appeared twice */
-            error(16,lf->pathname,"Section",u?u->objname:lf->filename);
-          break;
+          /* Sections of an executable should never be joined, or */
+          /* dangerous things will happen. */
+          if (!secname && hi.exec) {
+            secname = alloc(10);
+            sprintf(secname,"S%08lx",(unsigned long)hi.hunkptr);
+          }
 
-        case HUNK_ABSRELOC32:
-          if (!addlongrelocs(gv,&hi,s,R_ABS,32))
-            error(17,lf->pathname,"HUNK_ABSRELOC32",u?u->objname:lf->filename);
-          break;
+          /* create new section node */
+          s_size = (unsigned long)nextword32(&hi) & 0x3fffffff;
+          s = create_section(u,secname,
+                             (w&0xffff)!=HUNK_BSS ? hi.hunkptr : NULL,
+                             s_size<<2);
+          s->flags = s_attr | SF_ALLOC;
+          s->alignment = gv->min_alignment>2 ? gv->min_alignment : 2;
+          s->id = index++;
+          switch (w & 0xffff) {
+            case HUNK_PPC_CODE:
+              s->flags |= SF_EHFPPC;  /* section contains PowerPC code */
+            case HUNK_CODE:
+              s->type = ST_CODE;
+              /* @@@@ amigahunk/ehf code is always writeable ??? */
+              s->protection = SP_READ | /*SP_WRITE |*/ SP_EXEC;
+              break;
+            case HUNK_DATA:
+              s->type = ST_DATA;
+              s->protection = SP_READ | SP_WRITE;
+              break;
+            case HUNK_BSS:
+              s->flags |= SF_UNINITIALIZED;
+              s->data = NULL;
+              s->type = ST_UDATA;
+              s->protection = SP_READ | SP_WRITE;
+              break;
+          }
+          if (!(s->flags & SF_UNINITIALIZED))
+            movehunkptr32(&hi,s_size);  /* skip section's contents */
+        }
+        else
+          /* Section appeared twice */
+          error(16,lf->pathname,"Section",u?u->objname:lf->filename);
+        break;
 
-        case HUNK_RELOC32SHORT:
+      case HUNK_ABSRELOC32:
+        if (!addlongrelocs(gv,&hi,s,R_ABS,32))
+          error(17,lf->pathname,"HUNK_ABSRELOC32",u?u->objname:lf->filename);
+        break;
+
+      case HUNK_RELOC32SHORT:
+        if (!addshortrelocs32(gv,&hi,s))
+          error(17,lf->pathname,"HUNK_RELOC32SHORT",u?u->objname:lf->filename);
+        break;
+
+      case HUNK_RELRELOC16:
+        if (!addlongrelocs(gv,&hi,s,R_PC,16))
+          error(17,lf->pathname,"HUNK_RELRELOC16",u?u->objname:lf->filename);
+        break;
+
+      case HUNK_RELRELOC8:
+        if (!addlongrelocs(gv,&hi,s,R_PC,8))
+          error(17,lf->pathname,"HUNK_RELRELOC8",u?u->objname:lf->filename);
+        break;
+
+      case HUNK_RELRELOC32:
+        if (!addlongrelocs(gv,&hi,s,R_PC,32))
+          error(17,lf->pathname,"HUNK_RELRELOC32",u?u->objname:lf->filename);
+        break;
+
+      case HUNK_ABSRELOC16:
+        if (!addlongrelocs(gv,&hi,s,R_ABS,16))
+          error(17,lf->pathname,"HUNK_ABSRELOC16",u?u->objname:lf->filename);
+        break;
+
+      case HUNK_DREL32:
+        /* This hunk block has a double meaning. Before Amiga OS 3.0 */
+        /* it was often used as RELOC32SHORT, but will appear in */
+        /* executables only. */
+        if (hi.exec) {
           if (!addshortrelocs32(gv,&hi,s))
-            error(17,lf->pathname,"HUNK_RELOC32SHORT",u?u->objname:lf->filename);
-          break;
+            error(17,lf->pathname,"HUNK_RELOC32SHORT",
+                  u?u->objname:lf->filename);
+        }
+        else {
+          if (!addlongrelocs(gv,&hi,s,R_SD,32))
+            error(17,lf->pathname,"HUNK_DREL32",u?u->objname:lf->filename);
+        }
+        break;
 
-        case HUNK_RELRELOC16:
-          if (!addlongrelocs(gv,&hi,s,R_PC,16))
-            error(17,lf->pathname,"HUNK_RELRELOC16",u?u->objname:lf->filename);
-          break;
+      case HUNK_DREL16:
+        if (!addlongrelocs(gv,&hi,s,R_SD,16))
+          error(17,lf->pathname,"HUNK_DREL16",u?u->objname:lf->filename);
+        break;
 
-        case HUNK_RELRELOC8:
-          if (!addlongrelocs(gv,&hi,s,R_PC,8))
-            error(17,lf->pathname,"HUNK_RELRELOC8",u?u->objname:lf->filename);
-          break;
+      case HUNK_DREL8:
+        if (!addlongrelocs(gv,&hi,s,R_SD,8))
+          error(17,lf->pathname,"HUNK_DREL8",u?u->objname:lf->filename);
+        break;
 
-        case HUNK_RELRELOC32:
-          if (!addlongrelocs(gv,&hi,s,R_PC,32))
-            error(17,lf->pathname,"HUNK_RELRELOC32",u?u->objname:lf->filename);
-          break;
+      case HUNK_RELRELOC26: /* EHF */
+        if (!addlongrelocs(gv,&hi,s,R_PC,24))
+          error(17,lf->pathname,"HUNK_RELRELOC26",u?u->objname:lf->filename);
+        break;
 
-        case HUNK_ABSRELOC16:
-          if (!addlongrelocs(gv,&hi,s,R_ABS,16))
-            error(17,lf->pathname,"HUNK_ABSRELOC16",u?u->objname:lf->filename);
-          break;
+      case HUNK_EXT:  /* external definitions and references */
+      case HUNK_SYMBOL:
+        if (s) {
+          uint32_t xtype;
+          char *xname;
 
-        case HUNK_DREL32:
-          /* This hunk block has a double meaning. Before Amiga OS 3.0 */
-          /* it was often used as RELOC32SHORT, but will appear in */
-          /* executables only. */
-          if (hi.exec) {
-            if (!addshortrelocs32(gv,&hi,s))
-              error(17,lf->pathname,"HUNK_RELOC32SHORT",
-                    u?u->objname:lf->filename);
-          }
-          else {
-            if (!addlongrelocs(gv,&hi,s,R_SD,32))
-              error(17,lf->pathname,"HUNK_DREL32",u?u->objname:lf->filename);
-          }
-          break;
-
-        case HUNK_DREL16:
-          if (!addlongrelocs(gv,&hi,s,R_SD,16))
-            error(17,lf->pathname,"HUNK_DREL16",u?u->objname:lf->filename);
-          break;
-
-        case HUNK_DREL8:
-          if (!addlongrelocs(gv,&hi,s,R_SD,8))
-            error(17,lf->pathname,"HUNK_DREL8",u?u->objname:lf->filename);
-          break;
-
-        case HUNK_RELRELOC26: /* EHF */
-          if (!addlongrelocs(gv,&hi,s,R_PC,24))
-            error(17,lf->pathname,"HUNK_RELRELOC26",u?u->objname:lf->filename);
-          break;
-
-        case HUNK_EXT:  /* external definitions and references */
-        case HUNK_SYMBOL:
-          if (s) {
-            uint32_t xtype;
-            char *xname;
-
-            nextword32(&hi);
-            while (xtype = testword32(&hi)) {
-              xname = gethunkname(&hi);
-              switch (xtype >>= 24) {
-
-                /* Symbol Definitions */
-                case EXT_SYMB:  /* local symbol definition (for debugging) */
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_RELOC,SYMB_LOCAL);
-                  break;
-                case EXT_DEF:  /* global addr. symbol def. (requires reloc) */
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_RELOC,SYMB_GLOBAL);
-                  break;
-                case EXT_ABS:  /* global def. of absolute symbol */
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_ABS,SYMB_GLOBAL);
-                  break;
-                case EXT_RES:  /* unsupported type, invalid since OS2.0 */
-                  error(18,lf->pathname,xname,u->objname,EXT_RES);
-                  break;
-
-                /* Unresolved Symbol References */
-                case EXT_ABSREF32:
-                  create_xrefs(gv,&hi,s,xname,R_ABS,32);
-                  break;
-                case EXT_ABSREF16:
-                  create_xrefs(gv,&hi,s,xname,R_ABS,16);
-                  break;
-                case EXT_ABSREF8:
-                  create_xrefs(gv,&hi,s,xname,R_ABS,8);
-                  break;
-                case EXT_RELREF32:
-                  create_xrefs(gv,&hi,s,xname,R_PC,32);
-                  break;
-                case EXT_RELREF26: /* EHF */
-                  create_xrefs(gv,&hi,s,xname,R_PC,24);
-                  break;
-                case EXT_RELREF16:
-                  create_xrefs(gv,&hi,s,xname,R_PC,16);
-                  break;
-                case EXT_RELREF8:
-                  create_xrefs(gv,&hi,s,xname,R_PC,8);
-                  break;
-                case EXT_DEXT32:
-                  create_xrefs(gv,&hi,s,xname,R_SD,32);
-                  break;
-                case EXT_DEXT16:
-                  create_xrefs(gv,&hi,s,xname,R_SD,16);
-                  break;
-                case EXT_DEXT8:
-                  create_xrefs(gv,&hi,s,xname,R_SD,8);
-                  break;
-
-                case EXT_ABSCOMMON:
-                  /* ABSCOMMON was never used and only supported */
-                  /* by the VERY old ALink linker on AmigaOS (now */
-                  /* it's used by pasm). But I like it... :) */
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_COMMON,SYMB_GLOBAL);
-                  create_xrefs(gv,&hi,s,xname,R_ABS,32);
-                  break;
-                case EXT_RELCOMMON:
-                  /* RELCOMMON was introduced in OS3.1 and might */
-                  /* only be used by the pasm assembler. */
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_COMMON,SYMB_GLOBAL);
-                  create_xrefs(gv,&hi,s,xname,R_PC,32);
-                  break;
-
-                /* The following are INOFFICIAL base-relative */
-                /* common symbol references, created for vbcc */
-                case EXT_DEXT32COMMON:
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_COMMON,SYMB_GLOBAL);
-                  create_xrefs(gv,&hi,s,xname,R_SD,32);
-                  break;
-                case EXT_DEXT16COMMON:
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_COMMON,SYMB_GLOBAL);
-                  create_xrefs(gv,&hi,s,xname,R_SD,16);
-                  break;
-                case EXT_DEXT8COMMON:
-                  create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
-                              SYM_COMMON,SYMB_GLOBAL);
-                  create_xrefs(gv,&hi,s,xname,R_SD,8);
-                  break;
-
-                default:  /* unsupported HUNK_EXT sub type */
-                  if (xtype & 0x80000000)
-                    error(20,lf->pathname,xname,u->objname,xtype>>24);
-                  else
-                    error(18,lf->pathname,xname,u->objname,xtype>>24);
-              }
-            }
-            nextword32(&hi);
-          }
-          else
-            error(17,lf->pathname,(w==HUNK_EXT) ? "HUNK_EXT" : "HUNK_SYMBOL",
-                  u ? u->objname : lf->filename);
-          break;
-
-        case HUNK_DEBUG:
-          if (!create_debuginfo(gv,&hi,s))
-            error(17,lf->pathname,"HUNK_DEBUG",u?u->objname:lf->filename);
-          break;
-
-        case HUNK_OVERLAY:
-        case HUNK_BREAK:
-          ierror("readconv(): HUNK_OVERLAY/BREAK not yet supported");
-          break;
-
-        case HUNK_END:
           nextword32(&hi);
-          if (s) {
-            addtail(&u->sections,&s->n);  /* add Section to ObjectUnit */
+          while (xtype = testword32(&hi)) {
+            xname = gethunkname(&hi);
+            switch (xtype >>= 24) {
+
+              /* Symbol Definitions */
+              case EXT_SYMB:  /* local symbol definition (for debugging) */
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_RELOC,SYMB_LOCAL);
+                break;
+              case EXT_DEF:  /* global addr. symbol def. (requires reloc) */
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_RELOC,SYMB_GLOBAL);
+                break;
+              case EXT_ABS:  /* global def. of absolute symbol */
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_ABS,SYMB_GLOBAL);
+                break;
+              case EXT_RES:  /* unsupported type, invalid since OS2.0 */
+                error(18,lf->pathname,xname,u->objname,EXT_RES);
+                break;
+
+              /* Unresolved Symbol References */
+              case EXT_ABSREF32:
+                create_xrefs(gv,&hi,s,xname,R_ABS,32);
+                break;
+              case EXT_ABSREF16:
+                create_xrefs(gv,&hi,s,xname,R_ABS,16);
+                break;
+              case EXT_ABSREF8:
+                create_xrefs(gv,&hi,s,xname,R_ABS,8);
+                break;
+              case EXT_RELREF32:
+                create_xrefs(gv,&hi,s,xname,R_PC,32);
+                break;
+              case EXT_RELREF26: /* EHF */
+                create_xrefs(gv,&hi,s,xname,R_PC,24);
+                break;
+              case EXT_RELREF16:
+                create_xrefs(gv,&hi,s,xname,R_PC,16);
+                break;
+              case EXT_RELREF8:
+                create_xrefs(gv,&hi,s,xname,R_PC,8);
+                break;
+              case EXT_DEXT32:
+                create_xrefs(gv,&hi,s,xname,R_SD,32);
+                break;
+              case EXT_DEXT16:
+                create_xrefs(gv,&hi,s,xname,R_SD,16);
+                break;
+              case EXT_DEXT8:
+                create_xrefs(gv,&hi,s,xname,R_SD,8);
+                break;
+
+              case EXT_ABSCOMMON:
+                /* ABSCOMMON was never used and only supported */
+                /* by the VERY old ALink linker on AmigaOS. */
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_COMMON,SYMB_GLOBAL);
+                create_xrefs(gv,&hi,s,xname,R_ABS,32);
+                break;
+               case EXT_RELCOMMON:
+                /* RELCOMMON was introduced in OS3.1. */
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_COMMON,SYMB_GLOBAL);
+                create_xrefs(gv,&hi,s,xname,R_PC,32);
+                break;
+
+              /* The following are INOFFICIAL base-relative */
+              /* common symbol references, created for vbcc */
+              case EXT_DEXT32COMMON:
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_COMMON,SYMB_GLOBAL);
+                create_xrefs(gv,&hi,s,xname,R_SD,32);
+                break;
+              case EXT_DEXT16COMMON:
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_COMMON,SYMB_GLOBAL);
+                create_xrefs(gv,&hi,s,xname,R_SD,16);
+                break;
+              case EXT_DEXT8COMMON:
+                create_xdef(gv,s,xname,(int32_t)nextword32(&hi),
+                            SYM_COMMON,SYMB_GLOBAL);
+                create_xrefs(gv,&hi,s,xname,R_SD,8);
+                break;
+
+              default:  /* unsupported HUNK_EXT sub type */
+                if (xtype & 0x80000000)
+                  error(20,lf->pathname,xname,u->objname,xtype>>24);
+                else
+                  error(18,lf->pathname,xname,u->objname,xtype>>24);
+            }
+          }
+          nextword32(&hi);
+        }
+        else
+          error(17,lf->pathname,(w==HUNK_EXT) ? "HUNK_EXT" : "HUNK_SYMBOL",
+                u ? u->objname : lf->filename);
+        break;
+
+      case HUNK_DEBUG:
+        if (!create_debuginfo(gv,&hi,s))
+          error(17,lf->pathname,"HUNK_DEBUG",u?u->objname:lf->filename);
+        break;
+
+      case HUNK_OVERLAY:
+      case HUNK_BREAK:
+        ierror("readconv(): HUNK_OVERLAY/BREAK not yet supported");
+        break;
+
+      case HUNK_END:
+        nextword32(&hi);
+        if (s) {
+          addtail(&u->sections,&s->n);  /* add Section to ObjectUnit */
+          indexhunk = hi.libbase != NULL;  /* next unit in HUNK_INDEX */
+          if (!indexhunk) {
             s = NULL;
             secname = NULL;
           }
-          else
-            error(17,lf->pathname,"HUNK_END",u ? u->objname : lf->filename);
-          break;
+        }
+        else
+          error(17,lf->pathname,"HUNK_END",u ? u->objname : lf->filename);
+        break;
 
-        default:
-          error(13,lf->pathname);  /* File format corrupted */
-          break;
+      default:
+        error(13,lf->pathname);  /* File format corrupted */
+        break;
+    }
+
+    if (indexhunk) {
+      if (hi.indexcnt > 2) {
+        if (u!=NULL && s!=NULL && hunksleft && secname!=NULL) {
+          /* add external definitions for last section */
+          const char *xname;
+          uint32_t xval;
+          int xtype;
+
+          w = readindex(&hi);
+          skipindex(&hi,w<<1);  /* ignore external references */
+
+          w = readindex(&hi);
+          while (w--) {
+            xname = readstrpool(&hi);
+            xval = readindex(&hi);
+            xtype = (int)readindex(&hi);
+            if ((xtype&0xbf) == EXT_ABS) {
+              xval |= (xtype&0xff00) << 8;
+              if (xtype & 0x40)
+                xval |= 0xff000000;
+            }
+            else if (xtype != EXT_DEF)
+              error(18,lf->pathname,xname,u->objname,xtype);
+
+            create_xdef(gv,s,xname,(int32_t)xval,
+                        xtype==EXT_DEF?SYM_RELOC:SYM_ABS,SYMB_GLOBAL);
+          }
+          s = NULL;
+          secname = NULL;
+
+          if (--hunksleft == 0) {
+            /* unit is complete, add it */
+            add_objunit(gv,u,TRUE);
+            u = NULL;
+            if (hi.indexcnt <= 2)
+              goto hunk_lib_done;
+          }
+        }
+
+        if (u == NULL) {
+          /* get the next HUNK_UNIT from an indexed HUNK_LIB library */
+          u = create_objunit(gv,lf,readstrpool(&hi));
+          hi.hunkptr = hi.libbase + (readindex(&hi) << 2);
+          hi.hunkcnt = 0x10000000;
+          hunksleft = readindex(&hi);
+          index = 0;
+        }
+
+        if (hunksleft && secname==NULL) {
+          /* read next section name */
+          secname = (char *)readstrpool(&hi);
+          skipindex(&hi,4);  /* ignore hunk size and type */
+        }
+        indexhunk = FALSE;  /* continue normally until HUNK_END */
+      }
+      else {
+hunk_lib_done:
+        /* finished with HUNK_LIB - clean up */
+        hi.hunkptr = hi.indexptr + hi.indexcnt;
+        hi.hunkcnt = hi.savedhunkcnt;
+        hi.libbase = NULL;
+        indexhunk = FALSE;
       }
     }
-    add_objunit(gv,u,TRUE);  /* add last one to glob. ObjUnit list */
-    u = NULL;
   }
+
+  add_objunit(gv,u,TRUE);  /* add last one to glob. ObjUnit list */
 }
 
 
@@ -943,12 +1068,12 @@ static uint8_t cmpsecflags(uint8_t oldflags,uint8_t newflags)
 /* return 0xff if sections are incompatible, otherwise return new flags */
 {
   if (oldflags&SF_EHFPPC != newflags&SF_EHFPPC)
-    return (0xff);
+    return 0xff;
   if ((oldflags&(SF_CHIP|SF_FAST))==0 ||
       (newflags&(SF_CHIP|SF_FAST))==0 ||
       (oldflags&(SF_CHIP|SF_FAST)) == (newflags&(SF_CHIP|SF_FAST)))
-    return (newflags | (oldflags&(SF_CHIP|SF_FAST)));
-  return (0xff);
+    return newflags | (oldflags&(SF_CHIP|SF_FAST));
+  return 0xff;
 }
 
 
@@ -965,11 +1090,11 @@ static int targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
   if (!(gv->small_code && s->type==ST_CODE) &&
       !(gv->small_data && (s->type==ST_DATA || s->type==ST_UDATA)))
     if (*(ls->name)==0 && *(s->name)==0)
-      return (-1);
+      return -1;
 
   /* sections with name "_NOMERGE" are never combined */
   if (!strcmp(s->name,"_NOMERGE"))
-    return (-1);
+    return -1;
 
   /* Executable only: */
   if (!gv->dest_object) {
@@ -977,11 +1102,11 @@ static int targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
       /* data and bss section with name __MERGED are always combined */
       if (s->type == ST_CODE)
         error(57,getobjname(s->obj)); /* Merging code section "__MERGED" */
-      return (1);
+      return 1;
     }
   }
 
-  return (0);
+  return 0;
 }
 
 
@@ -997,8 +1122,8 @@ static struct Symbol *ados_lnksym(struct GlobalVars *gv,struct Section *sec,
       if (!strcmp(ados_symnames[i],xref->xrefname)) {
         if (i==SASCT || i==SASDT) {
           /* map to ___CTOR_LIST__ / ___DTOR_LIST__ */
-          return (findlnksymbol(gv,(i == SASCT) ?
-                                   "___CTOR_LIST__" : "___DTOR_LIST__"));
+          return findlnksymbol(gv,(i == SASCT) ?
+                                  "___CTOR_LIST__" : "___DTOR_LIST__");
         }
         else {
           sym = addlnksymbol(gv,ados_symnames[i],0,SYM_ABS,
@@ -1018,12 +1143,12 @@ static struct Symbol *ados_lnksym(struct GlobalVars *gv,struct Section *sec,
             sdabase->extra = ELFSD;
           }
           sym->extra = i;  /* for easy identification in ados_setlnksym */
-          return (sym);  /* new linker symbol created */
+          return sym;  /* new linker symbol created */
         }
       }
     }
   }
-  return (NULL);
+  return NULL;
 }
 
 
@@ -1106,9 +1231,9 @@ static struct Symbol *ehf_findsymbol(struct GlobalVars *gv,
 
   if (sym)
     if (sym->type == SYM_INDIR)
-      return (ehf_findsymbol(gv,sec,sym->indir_name));
+      return ehf_findsymbol(gv,sec,sym->indir_name);
 
-  return (sym);
+  return sym;
 }
 
 
@@ -1116,7 +1241,7 @@ static struct Symbol *ehf_lnksym(struct GlobalVars *gv,struct Section *sec,
                                  struct Reloc *xref)
 /* Checks if undefined symbol is an EHF-linker symbol */
 {
-  if (!gv->dest_object) {
+  if (!gv->dest_object || gv->alloc_addr) {
 
     if (!strncmp(ehf_addrsym,xref->xrefname,sizeof(ehf_addrsym)-1)) {
       const char *symname = xref->xrefname + (sizeof(ehf_addrsym) - 1);
@@ -1151,12 +1276,12 @@ static struct Symbol *ehf_lnksym(struct GlobalVars *gv,struct Section *sec,
         if (!(sym = findsymbol(gv,sec,xref->xrefname)))
           ierror("ehf_lnksym(): The just defined symbol %s has "
                  "disappeared",xref->xrefname);
-        return (sym);
+        return sym;
       }
     }
   }
 
-  return (ados_lnksym(gv,sec,xref));
+  return ados_lnksym(gv,sec,xref);
 }
 
 
@@ -1207,7 +1332,7 @@ static int strlen32(const char *s)
 {
   int l=strlen(s);
 
-  return (l?((l+3)>>2):0);
+  return l?((l+3)>>2):0;
 }
 
 
@@ -1270,8 +1395,11 @@ static void unsupp_symbols(struct LinkedSection *sec)
   struct Symbol *sym;
 
   while (sym = (struct Symbol *)remhead(&sec->symbols)) {
-    error(33,fff_amigahunk.tname,sym->name,sym_bind[sym->bind],
-          sym_type[sym->type],sym_info[sym->info]);
+    if (sym->info <= SYMI_FUNC)
+      error(33,fff_amigahunk.tname,sym->name,sym_bind[sym->bind],
+            sym_type[sym->type],sym_info[sym->info]);
+    else
+      ;  /* SYMI_SECTION and SYMI_FILE symbols are ignored for now */
   }
 }
 
