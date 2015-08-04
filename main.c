@@ -1,11 +1,11 @@
-/* $VER: vlink main.c V0.13 (02.11.10)
+/* $VER: vlink main.c V0.15 (23.12.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -167,6 +167,7 @@ int main(int argc,char *argv[])
   gv->dest_name = "a.out";
   gv->maxerrors = DEF_MAXERRORS;
   gv->reloctab_format = RTAB_UNDEF;
+  gv->osec_base_name = NULL;
 
   if (argc<2 || (argc==2 && *argv[1]=='?')) {
     show_usage();
@@ -214,7 +215,12 @@ int main(int argc,char *argv[])
           break;
 
         case 'd':
-          gv->alloc_common = TRUE;  /* force alloc. of common syms. */
+          if (!argv[i][2] || argv[i][2]=='c' || argv[i][2]=='p')
+            gv->alloc_common = TRUE;  /* force alloc. of common syms. */
+          else if (argv[i][2] == 'a')
+            gv->alloc_addr = TRUE;  /* force alloc. of address syms. */
+          else
+            error(2,argv[i]);  /* unrecognized option */
           break;
 
         case 'e':
@@ -295,7 +301,15 @@ int main(int argc,char *argv[])
           break;
 
         case 'o':  /* set output file name */
-          gv->dest_name = get_option_arg(argc,argv,&i);
+          if (!strncmp(&argv[i][2],"sec=",4) && argv[i][6]!='\0') {
+            /* defines a base name of the sections to output */
+            gv->osec_base_name = &argv[i][6];
+            gv->output_sections = TRUE;  /* output each section as a file */
+          }
+          else if (!strcmp(&argv[i][2],"sec"))
+            gv->output_sections = TRUE;  /* output each section as a file */
+          else
+            gv->dest_name = get_option_arg(argc,argv,&i);
           break;
 
         case 'q':  /* force relocations into final executable */
@@ -383,6 +397,8 @@ int main(int argc,char *argv[])
               gv->tosflags |= 0x20;
             else if (!strcmp(&argv[i][5],"readable"))
               gv->tosflags |= 0x30;
+            else if (!strcmp(&argv[i][5],"textbased"))
+              gv->textbasedsyms = 1;
             else
               error(2,argv[i]);  /* unrecognized option */
           }
@@ -464,6 +480,9 @@ int main(int argc,char *argv[])
             }
             else if (!strcmp(buf,"vbccelf")) {
               gv->collect_ctors_type = CCDT_VBCC_ELF;
+            }
+            else if (!strcmp(buf,"sasc")) {
+              gv->collect_ctors_type = CCDT_SASC;
             }
             else  /* @@@ print error message */
               gv->collect_ctors_type = CCDT_NONE;

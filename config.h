@@ -1,11 +1,11 @@
-/* $VER: vlink config.h V0.12d (03.05.09)
+/* $VER: vlink config.h V0.14a (02.08.12)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2009  Frank Wille
+ * Copyright (c) 1997-2012  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2009 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2012 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -60,6 +60,9 @@
 #define ELF32_AROS          /* ELF 386 relocatable for AROS */
 #define ELF32_ARM_LE        /* ELF ARM 32-Bit Little Endian */
 
+#define ELF64               /* general 64-bit ELF support */
+#define ELF64_X86           /* ELF x86_64 64-Bit Little Endian */
+
 #define AOUT                /* general a.out support */
 #define AOUT_NULL           /* a.out stdandard relocs, undefined endianess */
 #define AOUT_SUN010         /* a.out SunOS 68000/010 */
@@ -73,11 +76,14 @@
 
 #define RAWBIN1             /* single raw binary file */
 #define RAWBIN2             /* multiple raw binary files */
+#define AMSDOS              /* Amstrad/Schneider CPC program */
+#define CBMPRG              /* Commodore PET, VIC-20, 64, etc. program */
 #define SREC19              /* Motorola S-Record 16-bit addresses */
 #define SREC28              /* Motorola S-Record 24-bit addresses */
 #define SREC37              /* Motorola S-Record 32-bit addresses */
 #define IHEX                /* Intel Hex */
 #define SHEX1               /* Customer specific hex format */
+#define RAWSEG              /* multiple raw segment files */
 
 #define VOBJ                /* vasm special object format */
 

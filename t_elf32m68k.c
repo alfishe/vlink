@@ -38,10 +38,10 @@ struct FFFuncs fff_elf32m68k = {
   m68k_identify,
   m68k_readconv,
   NULL,
-  elf32_targetlink,
+  elf_targetlink,
   NULL,
-  elf32_lnksym,
-  elf32_setlnksym,
+  elf_lnksym,
+  elf_setlnksym,
   elf32_initdynlink,
   m68k_dynentry,
   m68k_dyncreate,
@@ -68,8 +68,8 @@ struct FFFuncs fff_elf32m68k = {
 static int m68k_identify(char *name,uint8_t *p,unsigned long plen,bool lib)
 /* identify ELF-M68k-32Bit-BigEndian */
 {
-  return (elf32_identify(&fff_elf32m68k,name,(struct Elf32_Ehdr *)p,plen,
-                         ELFCLASS32,ELFDATA2MSB,EM_68K,ELF_VER));
+  return (elf_identify(&fff_elf32m68k,name,p,plen,
+                       ELFCLASS32,ELFDATA2MSB,EM_68K,ELF_VER));
 }
 
 
@@ -126,9 +126,8 @@ static void m68k_readconv(struct GlobalVars *gv,struct LinkFile *lf)
     if (ar_init(&ai,(char *)lf->data,lf->length,lf->filename)) {
       while (ar_extract(&ai)) {
         lf->objname = allocstring(ai.name);
-        elf32_check_ar_type(fff[lf->format],lf->pathname,
-                            (struct Elf32_Ehdr *)ai.data,
-                            ELFCLASS32,ELFDATA2MSB,ELF_VER,1,EM_68K);
+        elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
+                          ELFCLASS32,ELFDATA2MSB,ELF_VER,1,EM_68K);
         elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,m68k_reloc_elf2vlink);
       }
     }

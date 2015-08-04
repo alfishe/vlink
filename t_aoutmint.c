@@ -1,11 +1,11 @@
-/* $VER: vlink t_aoutmint.c V0.13 (02.11.10)
+/* $VER: vlink t_aoutmint.c V0.14e (23.08.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -126,7 +126,7 @@ static void aoutmint_writeexec(struct GlobalVars *gv,FILE *f)
   const int be = _BIG_ENDIAN_;
   uint8_t jmp_entry_code[] = { 0x20,0x3a,0x00,0x1a,0x4e,0xfb,0x08,0xfa };
   struct LinkedSection *sections[3];
-  unsigned long secsizes[2];
+  uint32_t secsizes[3];
   struct mint_exec me;
   long tparel_offset,tparel_size;
   struct nlist32 *stksize;
@@ -138,14 +138,14 @@ static void aoutmint_writeexec(struct GlobalVars *gv,FILE *f)
   memset(&me,0,sizeof(struct mint_exec));  /* init header with zero */
   text_data_bss_gaps(sections);  /* calculate gap size between sections */
   secsizes[0] = sections[0]->size + sections[0]->gapsize;
-  secsizes[1] = sections[1] ? sections[1]->filesize : 0;
+  secsizes[1] = sections[1] ? sections[1]->size + sections[1]->gapsize : 0;
+  secsizes[2] = sections[2] ? sections[2]->size : 0;
 
   /* init TOS header */
   write16be(me.tos.ph_branch,0x601a);
   write32be(me.tos.ph_tlen,secsizes[0]+TEXT_OFFSET);
   write32be(me.tos.ph_dlen,secsizes[1]);
-  write32be(me.tos.ph_blen,(sections[2]?sections[2]->size:0) +
-                           (sections[1]?sections[1]->gapsize:0));
+  write32be(me.tos.ph_blen,secsizes[2]);
   write32be(me.tos.ph_magic,0x4d694e54);  /* "MiNT" */
   write32be(me.tos.ph_flags,gv->tosflags);  /* Atari memory flags */
   write16be(me.tos.ph_abs,0);  /* includes relocations */
@@ -160,7 +160,7 @@ static void aoutmint_writeexec(struct GlobalVars *gv,FILE *f)
   /* The Atari symbol table size is the sum of a.out symbols and strings,
      which is now known. */
   write32be(me.tos.ph_slen,aoutsymlist.nextindex * sizeof(struct nlist32) +
-            aoutstrlist.nextoffset);
+            (aoutstrlist.nextoffset>4 ? aoutstrlist.nextoffset : 0));
 
   /* set jmp_entry to  move.l  a_entry(pc),d0
                        jmp     (-6,pc,d0.l)   */
@@ -168,10 +168,9 @@ static void aoutmint_writeexec(struct GlobalVars *gv,FILE *f)
 
   /* init a.out NMAGIC header */
   SETMIDMAG(&me.aout,NMAGIC,0,0);
-  write32be(me.aout.a_text,sections[0]->size+sections[0]->gapsize);
-  write32be(me.aout.a_data,sections[1]?sections[1]->filesize:0);
-  write32be(me.aout.a_bss,(sections[2]?sections[2]->size:0) +
-                          (sections[1]?sections[1]->gapsize:0));
+  write32be(me.aout.a_text,secsizes[0]);
+  write32be(me.aout.a_data,secsizes[1]);
+  write32be(me.aout.a_bss,secsizes[2]);
   write32be(me.aout.a_syms,aoutsymlist.nextindex*sizeof(struct nlist32));
   write32be(me.aout.a_entry,TEXT_OFFSET);
 
@@ -185,10 +184,12 @@ static void aoutmint_writeexec(struct GlobalVars *gv,FILE *f)
   fwritex(f,&me,sizeof(me));
 
   /* write sections */
-  fwritex(f,sections[0]->data,sections[0]->size);
-  fwritegap(f,sections[0]->gapsize);
-  if (sections[1])
+  fwritex(f,sections[0]->data,sections[0]->filesize);
+  fwritegap(f,(sections[0]->size-sections[0]->filesize)+sections[0]->gapsize);
+  if (sections[1]) {
     fwritex(f,sections[1]->data,sections[1]->filesize);
+    fwritegap(f,(sections[1]->size-sections[1]->filesize)+sections[1]->gapsize);
+  }
 
   /* write a.out symbols */
   aout_writesymbols(f);

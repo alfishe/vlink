@@ -23,15 +23,14 @@
 #include <proto/dos.h>
 #pragma default-align
 
-#elif defined(_WIN32)
-/* no headers needed */
+#elif defined(_WIN32) || defined(ATARI)
+/* portable pattern matching routines - no headers */
+
+#elif defined(_SGI_SOURCE)
+#include <libgen.h>
 
 #else /* UNIX */
-#ifdef _SGI_SOURCE
-#include <libgen.h>
-#else
 #include <fnmatch.h>
-#endif
 #endif
 
 
@@ -73,7 +72,7 @@ bool pattern_match(const char *pat,const char *str)
 }
 
 
-#elif defined(_WIN32)
+#elif defined(_WIN32) || defined(ATARI)
 
 static bool portable_pattern_match(const char *mask, const char *name)
 {

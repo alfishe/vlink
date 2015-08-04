@@ -1,11 +1,11 @@
-/* $VER: vlink targets.c V0.13 (02.11.10)
+/* $VER: vlink targets.c V0.15 (23.12.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -48,6 +48,9 @@ struct FFFuncs *fff[] = {
 #ifdef ELF32_ARM_LE
   &fff_elf32armle,
 #endif
+#ifdef ELF64_X86
+  &fff_elf64x86,
+#endif
 #ifdef AOUT_NULL
   &fff_aoutnull,
 #endif
@@ -87,6 +90,12 @@ struct FFFuncs *fff[] = {
 #ifdef RAWBIN2
   &fff_rawbin2,
 #endif
+#ifdef AMSDOS
+  &fff_amsdos,
+#endif
+#ifdef CBMPRG
+  &fff_cbmprg,
+#endif
 #ifdef SREC19
   &fff_srec19,
 #endif
@@ -101,6 +110,9 @@ struct FFFuncs *fff[] = {
 #endif
 #ifdef SHEX1
   &fff_shex1,
+#endif
+#ifdef RAWSEG
+  &fff_rawseg,
 #endif
   NULL
 };
@@ -1157,6 +1169,8 @@ static const char *xtors_secname(struct GlobalVars *gv,const char *defname)
         strcmp(gv->collect_ctors_secname,dtors_name))
       name = gv->collect_ctors_secname;
   }
+  else if (gv->collect_ctors_type == CCDT_SASC)
+    name = "__MERGED";
   return name;
 }
 
@@ -1226,11 +1240,61 @@ static void add_vbcc_xtors(struct GlobalVars *gv,struct list *objlist,
 }
 
 
+static int sasc_xtors_pri(const char *s)
+/* Return priority of a SAS/C constructor/destructor function name.
+   Its priority may be specified by a number behind the 2nd underscore.
+   For SAS/C a lower value means higher priority!
+   Example: _INIT_110_OpenLibs (constructor with priority 110) */
+{
+  if (*s++ == '_')
+    if (isdigit((unsigned)*s))
+      return 30000-atoi(s);  /* 30000 is the default priority, i.e. 0 */
+  return 0;
+}
+
+
+static void add_sasc_xtors(struct GlobalVars *gv,struct list *objlist,
+                           const char *cname,const char *dname,
+                           const char *csecname,const char *dsecname,
+                           const char *clabel,const char *dlabel)
+{
+  struct ObjectUnit *obj;
+  int clen = strlen(cname);
+  int dlen = strlen(dname);
+  int i;
+
+  for (obj=(struct ObjectUnit *)objlist->first;
+       obj->n.next!=NULL; obj=(struct ObjectUnit *)obj->n.next) {
+    for (i=0; i<OBJSYMHTABSIZE; i++) {
+      struct Symbol *sym = obj->objsyms[i];
+
+      while (sym) {
+        if (sym->bind==SYMB_GLOBAL) {
+          if (!strncmp(sym->name,cname,clen)) {
+            new_priptr(obj,csecname,clabel,sasc_xtors_pri(sym->name+clen),
+                       sym->name,0);
+          }
+          else if (!strncmp(sym->name,dname,dlen))
+            new_priptr(obj,dsecname,dlabel,sasc_xtors_pri(sym->name+dlen),
+                       sym->name,0);
+        }
+        sym = sym->obj_chain;
+      }
+    }
+
+    if (objlist == &gv->selobjects)
+      add_priptrs(gv,obj);  /* con-/destructors are already known */
+  }
+}
+
+
 void collect_constructors(struct GlobalVars *gv)
 /* Scan all selected and unselected object modules for constructor-
    and destructor functions of the required type. */
 {
   if (!gv->dest_object) {
+    const char *sasc_ctor = "__STI";
+    const char *sasc_dtor = "__STD";
     const char *vbcc_ctor = "__INIT";
     const char *vbcc_dtor = "__EXIT";
     const char *ctor_label = "___CTOR_LIST__";
@@ -1258,6 +1322,16 @@ void collect_constructors(struct GlobalVars *gv)
         add_xtor_sym(gv,0,dtor_label);  /* define __DTOR_LIST__ */
         add_vbcc_xtors(gv,&gv->libobjects,
                        vbcc_ctor,vbcc_dtor,csec,dsec,ctor_label,dtor_label);
+        break;
+
+      case CCDT_SASC:
+        /* ___ctors/___dtors will be directed to __CTOR_LIST__/__DTOR_LIST */
+        add_xtor_sym(gv,1,ctor_label);  /* define __CTOR_LIST__ */
+        add_sasc_xtors(gv,&gv->selobjects,
+                       sasc_ctor,sasc_dtor,csec,dsec,ctor_label,dtor_label);
+        add_xtor_sym(gv,0,dtor_label);  /* define __DTOR_LIST__ */
+        add_sasc_xtors(gv,&gv->libobjects,
+                       sasc_ctor,sasc_dtor,csec,dsec,ctor_label,dtor_label);
         break;
 
       default:
@@ -1597,7 +1671,18 @@ static void write_constructors(struct GlobalVars *gv,struct ObjectUnit *ou,
   unsigned long asize = (unsigned long)fff[gv->dest_format]->addr_bits / 8;
   struct Section *sec;
   struct PriPointer *pp;
+  int extraslots;
 
+  /* Format for vbcc constructors: <num>, [ <ptrs>... ], NULL */
+  /* Format for SAS/C constructors: [ <ptrs>...], NULL */
+  switch (gv->collect_ctors_type) {
+    case CCDT_SASC:
+      extraslots = 1;
+      break;
+    default:
+      extraslots = 2;
+      break;
+  }
   /* create a new section, if required */
   for (sec=(struct Section *)ou->sections.first;
        sec->n.next!=NULL; sec=(struct Section *)sec->n.next) {
@@ -1605,22 +1690,26 @@ static void write_constructors(struct GlobalVars *gv,struct ObjectUnit *ou,
       break;
   }
   if (sec->n.next == NULL) {
-    sec = add_xtor_section(gv,ou,secname,ou->lnkfile->data+offset,2*asize);
+    sec = add_xtor_section(gv,ou,secname,ou->lnkfile->data+offset,
+                           extraslots*asize);
     offset = 0;
   }
   else
-    sec->size += 2*asize;
+    sec->size += extraslots*asize;
 
   /* assign constructor/destructor label symbol to start of list */
   unlink_lnksymbol(gv,labelsym);
   labelsym->relsect = sec;
   labelsym->type = SYM_RELOC;
   labelsym->value = offset;
-  labelsym->size = 2 * asize;
+  labelsym->size = extraslots * asize;
   add_objsymbol(ou,labelsym);
   addglobsym(gv,labelsym);  /* make it globally visible */
-  data += writetaddr(gv,data,(lword)cnt);
-  offset += asize;
+
+  if (gv->collect_ctors_type != CCDT_SASC) {
+    data += writetaddr(gv,data,(lword)cnt);
+    offset += asize;
+  }
 
   /* write con-/destructor pointers */
   for (pp=(struct PriPointer *)gv->pripointers.first;

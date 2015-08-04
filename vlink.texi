@@ -1,3 +1,8 @@
+\ifx\pdfminorversion\undefined
+ \pdfoptionpdfminorversion=3
+\else
+ \pdfminorversion=3
+\fi
 \input texinfo
 
 @setfilename vlink.texi
@@ -7,7 +12,7 @@
 @ifinfo
 This is the manual for the portable multi-format linker vlink.
 
-Copyright 1997-2010 Frank Wille
+Copyright 1997-2014 Frank Wille
 @end ifinfo
 
 @titlepage
@@ -38,7 +43,7 @@ output.
 
 @section Legal
 @command{vlink} is freeware and part of the portable and retargetable ANSI C
-compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
 
 @command{vlink} may be freely redistributed as long as no modifications are
 made and nothing is charged for it. Non-commercial usage is allowed
@@ -83,7 +88,8 @@ The following file formats are supported:
 @table @code
 
 @item amigahunk
-The AmigaDos hunk format for M68k. Requires AmigaOS 2.04.
+The AmigaDos hunk format for M68k. Requires AmigaOS 2.04 with
+@option{-Rshort}.
 No shared objects. Small data offset @code{0x7ffe}. Linker symbols:
 @itemize @minus
   @item _DATA_BAS_ (PhxAss)
@@ -92,8 +98,8 @@ No shared objects. Small data offset @code{0x7ffe}. Linker symbols:
   @item _LinkerDB
   @item __BSSBAS (SASC/StormC)
   @item __BSSLEN (SASC/StormC)
-  @item __ctors (SASC/StormC)
-  @item __dtors (SASC/StormC)
+  @item ___ctors (SASC/StormC)
+  @item ___dtors (SASC/StormC)
   @item __DATA_BAS (DICE-C)
   @item __DATA_LEN (DICE-C)
   @item __BSS_LEN (DICE-C)
@@ -104,26 +110,36 @@ No shared objects. Small data offset @code{0x7ffe}. Linker symbols:
   @item ___bss_size (GNU-gcc)
 @end itemize
 Automatic constructor/destructor function tables:
-@code{__ctors} and @code{__dtors} (will be mapped automatically to
+@code{___ctors} and @code{___dtors} (will be mapped automatically to
 @code{__CTOR_LIST__} and @code{__DTOR_LIST__}).
 Supports @option{-Rstd} and @option{-Rshort}.
 This format was called "amigaos" in former @command{vlink} versions.
 
 @item amigaehf
 An extension of the AmigaDOS hunk format for the PowerPC,
-32-bit, big endian, as introduced by Haage&Partner GmbH. No
+32-bit, big endian, as introduced by Haage&Partner GmbH for WarpOS. No
 executables (they are in @code{amigahunk} format) or shared objects.
 The same linker symbols, constructors/destructors as under
-amigaos are supported. Additionally, @code{@@_name} symbols will
+@code{amigahunk} are supported. Additionally, @code{@@_name} symbols will
 be created on demand (when referenced).
 Supports @option{-Rstd} and @option{-Rshort}.
 
+@item amsdos
+Absolute raw binary output, similar to rawbin2, but with a header
+for Amstrad/Schneider CPC computers.
+
 @item ataritos
-Atari-ST TOS file format. Executables only at the moment.
+Atari-ST TOS file format. Executables only at the moment. Symbol table
+in extended DRI format. Symbols may be section- or start-based (option
+@option{-tos-textbased}).
 The internal linker script defines _LinkerDB for small
 data and supports @command{vbcc}-style
 constructor/destructor tables
 in the data section (@code{__CTOR_LIST__} and @code{__DTOR_LIST__}).
+
+@item cbmprg
+Absolute raw binary output, similar to rawbin2, but with a header
+for Commodore 8-bit computers (PET, VIC-20, 64, etc.).
 
 @item elf32m68k
 ELF (executable linkable format) for Motorola M68k, 32-bit,
@@ -178,6 +194,13 @@ Identical to elf32ppcbe, but when doing dynamic linking it requires that
 also all references from shared objects are resolved at link time. This
 is due to a limitation of the AmigaOS4 dynamic link editor (elf.library).
 
+@item elf64x86
+ELF (executable linkable format) for the x86_64 architecture.
+64-bit, little endian. No small data. Automatic constructor/destructor
+function tables will be placed into the sections
+@code{.ctors} and @code{.dtors}.
+Supports @option{-Rstd} and @option{-Radd}.
+
 @item a.out
 Currently supported:
 @itemize @minus
@@ -210,9 +233,20 @@ between sections are filled with 0-bytes. Without a linker
 script, the raw binary will be relocated to base address 0.
 
 @item rawbin2
-Similar to rawbin1. The only difference is, that a separate file
-will be created for every section. The file name will get
-the section's base address appended.
+Similar to rawbin1. The only difference is that a new output file will
+be created, for each section which caused a gap larger than 15 bytes to
+the previous section. The new file name will get the section's name
+appended after a dot.
+
+@item rawseg
+Creates a raw binary file for each segment. Segments can be defined in a
+@code{PHDR} block of the linker script. It defaults to text and data segments.
+The segment names, their base address and length are written into the output
+file while the binary files get their segment name appended to the original
+file name.
+When option @option{-q} (keep relocs) had been specified, then additional files
+containing the relocation offsets are created. The first word in each file
+defines the number of relocations.
 
 @item srec19
 @itemx srec28
@@ -230,14 +264,15 @@ Without a linker script, the raw binary will be relocated to base address 0.
 @command{vlink} command template:
 @example
   @command{vlink [-dhnqrstvwxMRSX] [-B linkmode] [-b targetname]
-  [-baseoff offset] [-C constructor-type] [-EB] [-EL]
+  [-baseoff offset] [-C constructor-type] [-da] [-dc] [-dp] [-EB] [-EL]
   [-e entrypoint] [-export-dynamic] [-f flavour] [-fixunnamed]
   [-F filename] [-interp path] [-L library-search-path]
   [-l library-specifier] [-minalign val] [-multibase] [-nostdlib]
   [-o filename] [-rpath path] [-sc] [-sd] [-shared] [-soname name]
   [-static] [-T filename] [-Ttext addr] [-textbaserel]
   [-tos-flags/fastload/fastram/private/global/super/readable]
-  [-u symbol] [-V version] [-y symbol] [-P symbol] input-files...}
+  [-tos-textbased] [-u symbol] [-V version] [-y symbol] [-P symbol]
+  input-files...}
 @end example
 
 Usually options and input file names can be mixed. Order of options may be
@@ -299,6 +334,8 @@ to scan for. Valid types are:
     vbcc style constructors: @code{__INIT[_<pri>]_<name> / __EXIT..}
   @item vbccelf
     vbcc style constructors: @code{_INIT[_<pri>]_<name> / _EXIT..}
+  @item sasc
+    SAS/C style constructors: @code{__STI[_<pri>]_<name> / __STD..}
 @end table
 
 @item -clr-adduscore
@@ -310,8 +347,14 @@ No longer delete a preceding underscore for the symbols of the
 following objects in the command line.
 
 @item -d
-Force allocation of commons even when producing relocatable
+@itemx -dc
+@itemx -dp
+Force allocation of common symbols, even when producing relocatable
 output (@option{-r} option).
+
+@item -da
+Force allocation of address symbols (PowerOpen), even when producing
+relocatable output (@option{-r} option).
 
 @item -e entrypoint
 Defines the entry point of an executable and may be either
@@ -409,6 +452,15 @@ Ignore default library search path, if one was compiled in.
 @item -o filename
 Specifies the name of the output file. Defaults to @file{a.out}.
 
+@item -osec
+Output each section as an individual file. The file name given with
+@option{-o} will be ignored. Only available for some target formats:
+rawbin1, rawbin2, amsdos, cbmprg.
+
+@item -osec=basename
+Works like @option{-osec}, but each output file name will be preceded
+by @file{"basename."}.
+
 @item -P symbol
 Protect a symbol from stripping. This doesn't work for all targets!
 
@@ -445,10 +497,10 @@ Strip all debugger symbols from the output.
 Strip all symbols from the output.
 
 @item -sc
-Merge all code sections to a single code section.
+Merge all code sections to a single code section (small code).
 
 @item -sd
-Merge all data and bss sections to a single data-bss section.
+Merge all data and bss sections to a single data-bss section (small data).
 
 @item -set-adduscore
 Start adding a preceding underscore for the symbols of the
@@ -473,6 +525,7 @@ locations for every section. The syntax is very similar
 to that used in GNU linker scripts.
 Supported commands:
 @itemize @minus
+  @item ASSERT
   @item CONSTRUCTORS
   @item ENTRY
   @item EXTERN
@@ -492,10 +545,16 @@ Supported functions:
   @item ALIGN
   @item KEEP
   @item LOADADDR
+  @item MAX
+  @item MIN
   @item SIZEOF
   @item SIZEOF_HEADERS
   @item SORT
 @end itemize
+
+@item -Ttext addr
+Set the base address of the first section. It can be overridden by
+a linker script.
 
 @item -t
 Trace the linker's file accesses.
@@ -506,8 +565,8 @@ linker will display a warning.
 
 @item -tos-flags value
 Set the 32 bit flags field of the Atari TOS header to @code{value}.
-All @option{-tos} options are only valid for the targets ataritos and
-aoutmint.
+All @option{-tos} options are only valid for the targets @code{ataritos} and
+@code{aoutmint}.
 
 @item -tos-fastload
 Sets the fastload bit (0) in the TOS header.
@@ -533,6 +592,15 @@ processes in supervisor mode only.
 Sets the flags in the TOS header to mark memory space as read-only for other
 processes.
 
+@item -tos-textbased
+Writes text-based (offset to program start) DRI symbols to a TOS executable,
+like Devpac. Otherwise symbol offsets are based on the section they are
+defined in.
+
+@item -Ttext addr
+Sets the start address of the first section, as long as it is not
+overwritten by a linker script.
+
 @item -u symbol
 Marks symbol as undefined in the first section which was
 found on the command line. This might trigger linking of
@@ -540,7 +608,7 @@ addtional modules from standard libraries.
 This is equivalent to the linker script command EXTERN.
 
 @item -V version
-Minimum major version of shared object to be linked.
+Minimum major version of shared object to be linked behind this option.
 
 @item -v
 Prints @command{vlink} version string, default library search path
@@ -611,7 +679,7 @@ alphabetical order, probably not complete):
 @item %s: Unresolved reference to symbol %s in %s uses unsupported type %d
 @item %s (%s+0x%x): Reference to undefined symbol %s
 @item Attributes of section %s were changed from %s in %s to %s in %s
-@item Alignment of section %s was changed from %d in %s to %d in %s
+@item %s: %s expected
 @item %s (%s+0x%x): Illegal relative reference to %s+0x%llx
 @item %s (%s+0x%x): %dbit %s reference to %s+0x%llx (value to write: 0x%llx) out of range
 @item %s (%s+0x%x): Referenced absolute symbol %s=0x%llx + 0x%llx (value to write: 0x%llx) doesn't fit into %d bits
@@ -660,8 +728,8 @@ alphabetical order, probably not complete):
 @item %s line %d: GNU command <%s> ignored
 @item %s line %d: Unknown memory region <%s>
 @item %s line %d: Multiple constructor types in output file
-@item UNUSED %s line %d: Syntax error
-@item UNUSED %s line %d: Can't define symbols without a section
+@item %s line %d: Syntax error
+@item %s line %d: Assertion failed: %s
 @item %s line %d: SECTIONS block defined twice
 @item %s line %d: Segment %s is closed and can't be reused
 @item %s line %d: Address overrides specified %cMA memory region
@@ -671,7 +739,7 @@ alphabetical order, probably not complete):
 @item %s line %d: Section %s was assigned to more than one PT_LOAD segment
 @item First ELF segment (%s) doesn't contain first section (%s)
 @item Intermediate uninitialized sections in ELF segment <%s> (first=<%s>, last=<%s>) will be turned into initialized
-@item %s: No load segment for the file header and PHDRS found
+@item Section <%s> (0x%llx-0x%llx) conflicts with ELF segment <%s> (currently: 0x%llx-0x%llx)
 @item %s: QMAGIC is deprecated and will no longer be supported
 @item %s: a.out %s table has illegal offset or size in %s
 @item %s: a.out %s table size in <%s> is not a multiple of %d
@@ -716,6 +784,7 @@ alphabetical order, probably not complete):
 @item .ctors/.dtors spread over multiple sections
 @item Dynamic symbol reference not supported by target %s
 @item %s: ELF symbol name has illegal offset 0x%lx in %s
+@item %s: Unkown endianess defaults to %s-endian. Consider using -EB/-EL
 @end enumerate
 
 @bye

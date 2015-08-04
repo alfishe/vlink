@@ -59,7 +59,7 @@ bool ar_extract(struct ar_info *ai)
 
     if (!strncmp(ah->ar_name,"ARFILENAMES/",12) ||  /* GNU long names 1 */
         !strncmp(ah->ar_name,"// ",3)) {            /* GNU long names 2 */
-      ai->long_names = p;
+      ai->long_names = (char *)p;
       cont = TRUE;
     }
 

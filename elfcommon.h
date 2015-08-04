@@ -1,11 +1,11 @@
-/* $VER: vlink elfcommon.h V0.12g (18.04.10)
+/* $VER: vlink elfcommon.h V0.14 (29.07.11)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2011  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2011 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -48,7 +48,7 @@
 #define ET_DYN    3                 /* Shared object file */
 #define ET_CORE   4                 /* Core file */
 #define ET_NUM    5                 /* Number of defined types */
-#define ET_LOOS   0xFE00            /* OS-specific range start
+#define ET_LOOS   0xFE00            /* OS-specific range start */
 #define ET_HIOS   0xFEFF            /* OS-specific range end */
 #define ET_LOPROC 0xFF00            /* Processor-specific */
 #define ET_HIPROC 0xFFFF            /* Processor-specific */
@@ -75,6 +75,7 @@
 #define EM_ARM            40
 #define EM_COLDFIRE       52
 #define EM_68HC12         53
+#define EM_X86_64         62
 #define EM_CYGNUS_POWERPC 0x9025
 #define EM_ALPHA          0x9026
 
@@ -225,13 +226,13 @@
 #define DT_JMPREL       23
 #define DT_BIND_NOW     24          /* Process relocations of object */
 #define DT_INIT_ARRAY   25          /* Array with addresses of init fct */
-#define DT_FINI_ARRAY   26          /* Array with addresses of fini
+#define DT_FINI_ARRAY   26          /* Array with addresses of fini */
 #define DT_INIT_ARRAYSZ 27          /* Size in bytes of DT_INIT_ARRAY */  
-#define DT_FINI_ARRAYSZ 28          /* Size in bytes of DT_FINI
+#define DT_FINI_ARRAYSZ 28          /* Size in bytes of DT_FINI */
 #define DT_RUNPATH      29          /* Library search path */
 #define DT_FLAGS        30          /* Flags for the object being loaded */
 #define DT_ENCODING     32          /* Start of encoded range */
-#define DT_PREINIT_ARRAY 32         /* Array with addresses of preinit fct*
+#define DT_PREINIT_ARRAY 32         /* Array with addresses of preinit fct */
 #define DT_PREINIT_ARRAYSZ 33       /* size in bytes of DT_PREINIT_ARRAY */
 #define DT_NUM          34          /* Number used */
 #define DT_LOOS         0x6000000d  /* Start of OS-specific */
@@ -239,5 +240,190 @@
 #define DT_LOPROC       0x70000000
 #define DT_HIPROC       0x7fffffff
 
+
+/* common ELF32/64 header */
+struct Elf_CommonHdr {
+  unsigned char e_ident[EI_NIDENT]; /* ELF "magic number" */
+  unsigned char e_type[2];          /* Identifies object file type */
+  unsigned char e_machine[2];       /* Specifies required architecture */
+  unsigned char e_version[4];       /* Identifies object file version */ 
+  /* the rest differs between ELF32 and ELF64 */
+};
+
+
+#define STRHTABSIZE    0x10000
+#define SHSTRHTABSIZE  0x100
+#define DYNSTRHTABSIZE 0x1000
+#define DYNSYMHTABSIZE 0x1000
+#define STABHTABSIZE   0x1000
+
+struct StrTabNode {
+  struct node n;
+  struct StrTabNode *hashchain;
+  const char *str;
+  uint32_t index;
+};
+
+struct StrTabList {
+  struct list l;
+  struct StrTabNode **hashtab;
+  size_t htabsize;
+  uint32_t nextindex;
+};
+
+struct SymbolNode {
+  struct node n;
+  struct SymbolNode *hashchain;
+  void *elfsym;
+  const char *name;
+  uint32_t index;
+  uint16_t shndx;
+};
+
+struct SymTabList {
+  struct list l;
+  struct StrTabList *strlist;
+  struct SymbolNode **hashtab;
+  size_t htabsize;
+  size_t elfsymsize;
+  uint32_t nextindex;
+  uint32_t globalindex;
+  void (*initsym)(void *,uint32_t,uint64_t,uint64_t,uint8_t,uint8_t,
+                  uint16_t,bool);
+};
+
+struct DynSymNode {             /* links vlink symbol with .dynsym-symbol */
+  struct node n;
+  struct Symbol *sym;           /* pointer to vlink symbol */
+  uint32_t idx;                 /* index of ELF symbol in .dynsym */
+};
+
+struct RelocList {
+  struct list l;
+  size_t relasize;
+  size_t writesize;
+  void (*initreloc)(void *,uint64_t,uint64_t,uint32_t,uint32_t,bool);
+};
+
+struct RelocNode {
+  struct node n; 
+  void *elfreloc;
+};
+
+/* for conversion from ELF reloc types to vlink internal format */
+struct ELF2vlink {
+  uint8_t rtype;
+  uint16_t bpos;
+  uint16_t bsiz;
+  lword mask;
+};
+
+/* Linker symbol IDs */
+#define SDABASE         0   /* _SDA_BASE_ */
+#define SDA2BASE        1   /* _SDA2_BASE_ */
+#define CTORS           2   /* __CTOR_LIST__ */
+#define DTORS           3   /* __DTOR_LIST__ */
+#define GLOBOFFSTAB     4   /* _GLOBAL_OFFSET_TABLE_ */
+#define PROCLINKTAB     5   /* _PROCEDURE_LINKAGE_TABLE_ */
+#define DYNAMICSYM      6   /* _DYNAMIC */
+
+
+/* global data from t_elf.c */
+#ifndef ELF_C
+extern struct StrTabList elfshstrlist;
+extern struct StrTabList elfstringlist;
+extern struct StrTabList elfdstrlist;
+extern struct SymTabList elfsymlist;
+extern struct SymTabList elfdsymlist;
+extern struct list shdrlist;
+extern struct list elfdynsymlist;
+extern struct Section *elfdynrelocs;       
+extern struct Section *elfpltrelocs; 
+extern int8_t elf_endianess;
+extern uint32_t elfshdridx,elfsymtabidx,elfshstrtabidx,elfstrtabidx;
+extern uint32_t elfoffset;
+extern unsigned long elf_file_hdr_gap;
+extern const char note_name[];
+extern const char dyn_name[];
+extern const char hash_name[];
+extern const char dynsym_name[];
+extern const char dynstr_name[];
+extern const char *dynrel_name[2];
+extern const char *pltrel_name[2];
+#endif
+
+
+/* Prototypes from elf.c */
+
+/* functions for reading */
+int elf_identify(struct FFFuncs *,char *,void *,lword,unsigned char,
+                 unsigned char,uint16_t,uint32_t);
+void elf_check_ar_type(struct FFFuncs *,const char *,void *,unsigned char,
+                       unsigned char,uint32_t,int,...);
+void elf_check_offset(struct LinkFile *,char *,void *,lword);
+struct Section *elf_add_section(struct GlobalVars *,struct ObjectUnit *,
+                                char *,uint8_t *,lword,uint32_t,
+                                uint64_t,uint8_t);
+void elf_add_symbol(struct GlobalVars *,struct ObjectUnit *,char *,uint8_t,
+                    int,uint32_t,uint8_t,uint8_t,lword,uint32_t);
+
+/* functions for linking */
+int elf_targetlink(struct GlobalVars *,struct LinkedSection *,
+                   struct Section *);
+struct Symbol *elf_makelnksym(struct GlobalVars *,int);
+struct Symbol *elf_lnksym(struct GlobalVars *,struct Section *,
+                          struct Reloc *);
+void elf_setlnksym(struct GlobalVars *,struct Symbol *);
+struct Section *elf_dyntable(struct GlobalVars *,unsigned long,unsigned long,
+                             uint8_t,uint8_t,uint8_t,int);
+void elf_adddynsym(struct Symbol *);
+void elf_dynreloc(struct ObjectUnit *,struct Reloc *,int,size_t);
+struct Section *elf_initdynlink(struct GlobalVars *);
+struct Symbol *elf_pltgotentry(struct GlobalVars *,struct Section *,DynArg,
+                               uint8_t,unsigned long,unsigned long,int,
+                               bool,size_t,size_t);
+struct Symbol *elf_bssentry(struct GlobalVars *,const char *,struct Symbol *,
+                            bool,size_t,size_t);
+size_t elf_num_buckets(size_t);
+void elf_putsymtab(uint8_t *,struct SymTabList *);
+
+/* functions for writing */
+unsigned long elf_numsegments(struct GlobalVars *);
+uint8_t elf_getinfo(struct Symbol *);
+uint8_t elf_getbind(struct Symbol *);
+uint16_t elf_getshndx(struct GlobalVars *,struct Symbol *,uint8_t);
+void elf_putstrtab(uint8_t *,struct StrTabList *);
+uint32_t elf_addstrlist(struct StrTabList *,const char *);
+uint32_t elf_addshdrstr(const char *);
+uint32_t elf_addstr(const char *);
+uint32_t elf_adddynstr(const char *);
+uint32_t elf_addsym(struct SymTabList *,const char *,uint64_t,uint64_t,
+                    uint8_t,uint8_t,uint16_t);
+void elf_initsymlist(struct SymTabList *,struct StrTabList *,size_t,size_t,
+                     void (*)(void *,uint32_t,uint64_t,uint64_t,
+                              uint8_t,uint8_t,uint16_t,bool));
+struct SymbolNode *elf_findSymNode(struct SymTabList *,const char *);
+uint32_t elf_extsymidx(struct SymTabList *sl,const char *);
+void elf_ident(void *,bool,uint8_t,uint16_t,uint16_t);
+void elf_stdsymtab(struct GlobalVars *,uint8_t,uint8_t);
+void elf_addsymlist(struct GlobalVars *,struct SymTabList *,uint8_t,uint8_t);
+uint32_t elf_segmentcheck(struct GlobalVars *,size_t);
+void elf_makeshdrs(struct GlobalVars *,
+                   void (*)(struct LinkedSection *,bool,uint64_t));
+struct RelocList *elf_newreloclist(size_t,size_t,
+                                   void (*)(void *,uint64_t,uint64_t,
+                                            uint32_t,uint32_t,bool));
+void elf_addrelocnode(struct RelocList *,uint64_t,uint64_t,
+                      uint32_t,uint32_t,bool);
+size_t elf_addrela(struct GlobalVars *,struct LinkedSection *,struct Reloc *,
+                   bool,struct RelocList *,uint8_t (*)(struct Reloc *));
+void elf_initoutput(struct GlobalVars *,uint32_t,int8_t);
+void elf_initsymtabs(size_t,void (*)(void *,uint32_t,uint64_t,uint64_t,
+                                     uint8_t,uint8_t,uint16_t,bool));
+void elf_writesegments(struct GlobalVars *,FILE *);
+void elf_writesections(struct GlobalVars *,FILE *f);
+void elf_writestrtab(FILE *,struct StrTabList *);
+void elf_writesymtab(FILE *,struct SymTabList *);
+void elf_writerelocs(FILE *,struct RelocList *);
 
 #endif

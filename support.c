@@ -1,11 +1,11 @@
-/* $VER: vlink support.c V0.13 (02.11.10)
+/* $VER: vlink support.c V0.14a (03.09.11)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2011  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2011 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -534,10 +534,7 @@ void fwrite32be(FILE *fp,uint32_t w)
   be[1] = (w>>16) & 0xff;
   be[2] = (w>>8) & 0xff;
   be[3] = w & 0xff;
-  if (!fwrite(be,4,sizeof(uint8_t),fp)) {
-    fclose(fp);
-    error(31,gvars.dest_name);  /* write error */
-  }
+  fwritex(fp,be,4);
 }
 
 
@@ -548,20 +545,38 @@ void fwrite16be(FILE *fp,uint16_t w)
 
   be[0] = (w>>8) & 0xff;
   be[1] = w & 0xff;
-  if (!fwrite(be,2,sizeof(uint8_t),fp)) {
-    fclose(fp);
-    error(31,gvars.dest_name);  /* write error */
-  }
+  fwritex(fp,be,2);
+}
+
+
+void fwrite32le(FILE *fp,uint32_t w)
+/* write a little endian 32 bit word */
+{
+  uint8_t le[4];
+
+  le[0] = w & 0xff;
+  le[1] = (w>>8) & 0xff;
+  le[2] = (w>>16) & 0xff;
+  le[3] = (w>>24) & 0xff;
+  fwritex(fp,le,4);
+}
+
+
+void fwrite16le(FILE *fp,uint16_t w)
+/* write a little endian 16 bit word */
+{
+  uint8_t le[2];
+
+  le[0] = w & 0xff;
+  le[1] = (w>>8) & 0xff;
+  fwritex(fp,le,2);
 }
 
 
 void fwrite8(FILE *fp,uint8_t w)
 /* write a byte */
 {
-  if (!fwrite(&w,1,sizeof(uint8_t),fp)) {
-    fclose(fp);
-    error(31,gvars.dest_name);  /* write error */
-  }
+  fwritex(fp,&w,1);
 }
 
 
@@ -589,9 +604,10 @@ void fwritegap(FILE *f,long bytes)
 }
 
 
-unsigned long elf_hash(const unsigned char *name)
+unsigned long elf_hash(const char *_name)
 /* calculate a hash code as used in ELF objects */
 {
+  const unsigned char *name=(const unsigned char *)_name;
   unsigned long h=0,g;
 
   while (*name) {

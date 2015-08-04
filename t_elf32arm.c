@@ -37,10 +37,10 @@ struct FFFuncs fff_elf32armle = {
   armle_identify,
   armle_readconv,
   NULL,
-  elf32_targetlink,
+  elf_targetlink,
   NULL,
-  elf32_lnksym,
-  elf32_setlnksym,
+  elf_lnksym,
+  elf_setlnksym,
   elf32_initdynlink,
   NULL,
   armle_dyncreate,
@@ -67,8 +67,8 @@ struct FFFuncs fff_elf32armle = {
 static int armle_identify(char *name,uint8_t *p,unsigned long plen,bool lib)
 /* identify ELF-ARM-32Bit-LittleEndian */
 {
-  return (elf32_identify(&fff_elf32armle,name,(struct Elf32_Ehdr *)p,plen,
-                         ELFCLASS32,ELFDATA2LSB,EM_ARM,ELF_VER));
+  return (elf_identify(&fff_elf32armle,name,p,plen,
+                       ELFCLASS32,ELFDATA2LSB,EM_ARM,ELF_VER));
 }
 
 
@@ -157,9 +157,8 @@ static void armle_readconv(struct GlobalVars *gv,struct LinkFile *lf)
     if (ar_init(&ai,(char *)lf->data,lf->length,lf->filename)) {
       while (ar_extract(&ai)) {
         lf->objname = allocstring(ai.name);
-        elf32_check_ar_type(fff[lf->format],lf->pathname,
-                            (struct Elf32_Ehdr *)ai.data,
-                            ELFCLASS32,ELFDATA2LSB,ELF_VER,1,EM_ARM);
+        elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
+                          ELFCLASS32,ELFDATA2LSB,ELF_VER,1,EM_ARM);
         elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,armle_reloc_elf2vlink);
       }
     }

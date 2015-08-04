@@ -1,11 +1,11 @@
-/* $VER: vlink vlink.h V0.13 (02.11.10)
+/* $VER: vlink vlink.h V0.15 (23.12.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -25,7 +25,7 @@
 #define PNAME "vlink"
 
 /* integer types - non ISO-C99 compliant compilers have to define TYPESxxBIT */
-#if defined (TYPES32BIT)
+#if defined(TYPES32BIT)
 typedef signed char int8_t;
 typedef unsigned char uint8_t;
 typedef signed short int int16_t;
@@ -34,7 +34,7 @@ typedef signed long int int32_t;
 typedef unsigned long int uint32_t;
 typedef signed long long int int64_t;
 typedef unsigned long long int uint64_t;
-#elif defined (TYPES64BIT)
+#elif defined(TYPES64BIT)
 typedef signed char int8_t;
 typedef unsigned char uint8_t;
 typedef signed short int16_t;
@@ -43,7 +43,7 @@ typedef signed int int32_t;
 typedef unsigned int uint32_t;
 typedef signed long int int64_t;
 typedef unsigned long int uint64_t;
-#elif defined (_MSC_VER) && (_MSC_VER < 1600)
+#elif defined(_MSC_VER) && (_MSC_VER < 1600)
 typedef __int8 int8_t;	            /* prior to VS2010 stdint.h is missing */
 typedef unsigned __int8 uint8_t;
 typedef __int16 int16_t;
@@ -268,7 +268,7 @@ struct Reloc {                  /* relocation information */
 #define R_SD 10                 /* small data, base-relative reloc */
 #define R_UABS 11               /* unaligned absolute address relocation */
 #define R_LOCALPC 12            /* pc-relative to local symbol */
-#define R_LOADREL 13		/* relative to load address, no symbol */
+#define R_LOADREL 13            /* relative to load address, no symbol */
 #define R_COPY 14               /* copy from shared object */
 #define R_JMPSLOT 15            /* procedure linkage table entry */
 #define R_SECOFF 16             /* symbol's offset to start of section */
@@ -281,15 +281,15 @@ struct Reloc {                  /* relocation information */
 #define R_AOSBREL 35            /* PPC-OS4: baserel(r2) rel. to data segm. */
 
 /* internal relocation types */
-#define R_ABSCOPY 128		/* absolute sh.obj. ref., needs R_COPY */
-#define R_PCCOPY 129		/* pc-relative sh.obj. ref., needs R_COPY */
+#define R_ABSCOPY 128           /* absolute sh.obj. ref., needs R_COPY */
+#define R_PCCOPY 129            /* pc-relative sh.obj. ref., needs R_COPY */
 
 /* Reloc flags */
 #define RELF_WEAK 1             /* reference is weak and defaults to 0 */
-#define RELF_INTERNAL 0x10	/* linker-internal relocation, not exported */
+#define RELF_INTERNAL 0x10      /* linker-internal relocation, not exported */
 #define RELF_PLT 0x40           /* dynamic PLT relocation */
 #define RELF_DYN 0x80           /* other dynamic relocation */
-#define RELF_DYNLINK 0xc0	/* takes part in dynamic linking */
+#define RELF_DYNLINK 0xc0       /* takes part in dynamic linking */
 
 
 struct Symbol {
@@ -323,9 +323,9 @@ struct Symbol {
 #define SYMF_PROTECTED 4        /* symbol is protected against stripping */
 #define SYMF_PROVIDED 8         /* provided symbols, removed when unref. */
 #define SYMF_SHLIB 0x10         /* symbol definition from a shared library */
-#define SYMF_DYNIMPORT 0x40	/* imported symbol for dynamic linking */
-#define SYMF_DYNEXPORT 0x80	/* exported symbol for dynamic linking */
-#define SYMF_DYNLINK 0xc0	/* takes part in dynamic linking */
+#define SYMF_DYNIMPORT 0x40     /* imported symbol for dynamic linking */
+#define SYMF_DYNEXPORT 0x80     /* exported symbol for dynamic linking */
+#define SYMF_DYNLINK 0xc0       /* takes part in dynamic linking */
 
 /* object type */
 #define SYMI_NOTYPE 0
@@ -448,12 +448,14 @@ struct GlobalVars {
   struct list inputlist;        /* list of input files */
   struct Flavours flavours;     /* library flavours */
   const char *dest_name;        /* output (executable) file name */
+  const char *osec_base_name;   /* base name when outputting sections */
   uint8_t dest_format;          /* output file format */
   bool dest_object;             /* output file is a relocatable object */
   bool dest_sharedobj;          /* output as shared object */
-  bool dyn_exp_all;		/* export all globals as dynamic symbols */
+  bool dyn_exp_all;             /* export all globals as dynamic symbols */
   bool keep_relocs;             /* keep relocations in final executable */
   bool alloc_common;            /* force allocation of common symbols */
+  bool alloc_addr;              /* force allocation of address symbols */
   bool whole_archive;           /* always link with whole archives */
   uint8_t strip_symbols;        /* strip symbols */
   uint8_t discard_local;        /* discard local symbols */
@@ -464,6 +466,8 @@ struct GlobalVars {
   bool no_page_align;           /* page-alignment disabled */
   bool fix_unnamed;             /* unnamed section get a default name */
   bool textbaserel;             /* allow base-relative access on code secs. */
+  bool textbasedsyms;           /* symbol offsets based on text section */
+  bool output_sections;         /* output each section as a new file */
   uint8_t min_alignment;        /* minimal section alignment (default 0) */
   FILE *map_file;               /* map file */
   FILE *map_file_newstyle;      /* map file, new style */
@@ -545,6 +549,8 @@ struct GlobalVars {
                                                __EXIT[_<pri=0-9>]_<name>() */
 #define CCDT_VBCC_ELF 3         /* VBCC-style: _INIT[_<pri=0-9>]_<name>()
                                                _EXIT[_<pri=0-9>]_<name>() */
+#define CCDT_SASC     4         /* SAS/C-style: __STI[_<pri>]_<name>()
+                                                __STD[_<pri>]_<name>() */
 
 typedef union {                 /* argument type for dynentry() */
   const char *name;
@@ -588,7 +594,7 @@ struct FFFuncs {                /* file format specific functions and data */
   const char *sbssname;         /* default name for small-data-bss section */
   uint32_t page_size;           /* page size for exec section alignment */
   int32_t baseoff;              /* sec. offset in bytes for base registers */
-  int32_t gotoff;		/* offset in .got for _GLOBAL_OFFSET_TABLE_ */
+  int32_t gotoff;               /* offset in .got for _GLOBAL_OFFSET_TABLE_ */
   uint32_t id;                  /* general purpose id (e.g. MID for a.out) */
   uint8_t rtab_format;          /* reloc-table format (GV.reloctab_format) */
   uint8_t rtab_mask;            /* mask of allowed reloc-table formats */
@@ -635,6 +641,8 @@ struct FFFuncs {                /* file format specific functions and data */
 #define FFF_DYN_RESOLVE_ALL 8   /* All dynamic symbol references have to */
                                 /* be resolved at link-time, even the */
                                 /* inter-DLL ones. */
+#define FFF_SECTOUT 16          /* Target allows to create a new file for */
+                                /* each section. */
 
 /* List of artificially generated pointers or long words, which are */
 /* sorted by section-name, list-name and priority. */
@@ -713,10 +721,12 @@ extern void writebf32(bool,void *,int,int,uint32_t);
 extern void fwritex(FILE *,const void *,size_t);
 extern void fwrite32be(FILE *,uint32_t);
 extern void fwrite16be(FILE *,uint16_t);
+extern void fwrite32le(FILE *,uint32_t);
+extern void fwrite16le(FILE *,uint16_t);
 extern void fwrite8(FILE *,uint8_t);
 extern void fwrite_align(FILE *,uint32_t,uint32_t);
 extern void fwritegap(FILE *,long);
-extern unsigned long elf_hash(const unsigned char *);
+extern unsigned long elf_hash(const char *);
 extern unsigned long align(unsigned long,unsigned long);
 extern unsigned long comalign(unsigned long,unsigned long);
 extern int shiftcnt(uint32_t);
@@ -851,9 +861,8 @@ extern struct Symbol *bss_entry(struct ObjectUnit *,const char *,
 #ifndef DIR_C
 extern char *path_append(char *,const char *,const char *,size_t);
 extern char *open_dir(const char *);
-extern char *read_dir(const char *);
-extern void close_dir(const char *);
-extern bool chk_file(const char *);
+extern char *read_dir(char *);
+extern void close_dir(char *);
 extern void set_exec(const char *);
 #endif
 
@@ -943,10 +952,10 @@ extern struct FFFuncs fff_elf32armle;
 #endif
 #endif
 
-/* t_elf64.c */
-#ifndef T_ELF64_C
-#if defined(ELF64_ALPHA)
-extern struct FFFuncs fff_elf64alpha;
+/* t_elf64x86.c */
+#ifndef T_ELF64X86_C
+#ifdef ELF64_X86
+extern struct FFFuncs fff_elf64x86;
 #endif
 #endif
 
@@ -1001,6 +1010,12 @@ extern struct FFFuncs fff_rawbin1;
 #if defined(RAWBIN2)
 extern struct FFFuncs fff_rawbin2;
 #endif
+#if defined(AMSDOS)
+extern struct FFFuncs fff_amsdos;
+#endif
+#if defined(CBMPRG)
+extern struct FFFuncs fff_cbmprg;
+#endif
 #if defined(SREC19)
 extern struct FFFuncs fff_srec19;
 #endif
@@ -1015,6 +1030,13 @@ extern struct FFFuncs fff_ihex;
 #endif
 #if defined(SHEX1)
 extern struct FFFuncs fff_shex1;
+#endif
+#endif
+
+/* t_rawseg.c */
+#ifndef T_RAWSEG_C
+#if defined(RAWSEG)
+extern struct FFFuncs fff_rawseg;
 #endif
 #endif
 

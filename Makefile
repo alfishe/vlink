@@ -11,7 +11,7 @@ DIR = objects
 
 CC = gcc
 CCOUT = -o $(DUMMYVARIABLE)	# produces the string "-o "
-COPTS = -O2 -fomit-frame-pointer -c
+COPTS = -std=c9x -O2 -fomit-frame-pointer -c
 CONFIG =
 
 LD = gcc

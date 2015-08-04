@@ -1,11 +1,11 @@
-/* $VER: vlink version.c V0.13 (01.12.10)
+/* $VER: vlink version.c V0.14e (23.08.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -15,26 +15,22 @@
 
 
 /* version/revision */
-#define VERSION 0
-#define REVISION 13
-#define PLEVEL 0
-#define _VER "0.13 (01.12.2010)"
+#define VERSION "0.15"
 
 #define VERSION_C
 #include "vlink.h"
 
 
 #ifdef AMIGAOS
-static const char *_ver = "$VER: " PNAME " " _VER "\r\n";
+static const char *_ver = "$VER: " PNAME " " VERSION " " __AMIGADATE__ "\r\n";
 #endif
 
 
 
 void show_version(void)
 {
-  printf(PNAME " V%d.%d%c (c)1997-2010 by Frank Wille\n"
-         "build date: " __DATE__ ", " __TIME__ "\n\n"
-         ,VERSION,REVISION,PLEVEL?('a'+PLEVEL-1):' ');
+  printf(PNAME " V" VERSION " (c)1997-2014 by Frank Wille\n"
+         "build date: " __DATE__ ", " __TIME__ "\n\n");
 }
 
 
@@ -47,11 +43,11 @@ void show_usage(void)
 #if 0 /* not implemented */
          "[-D symbol[=value]] "
 #endif
-         "[-EB] [-EL] [-e entrypoint] [-export-dynamic] "
+         "[-da] [-dc] [-dp] [-EB] [-EL] [-e entrypoint] [-export-dynamic] "
          "[-f flavour] [-fixunnamed] [-F filename] [-interp path] "
-         "[-L library-search-path] [-l library-specifier] [-minalign value]"
-         "[-multibase] [-nostdlib] [-o filename] [-rpath path] [-sc] [-sd] "
-         "[-shared] [-soname name] [-static] "
+         "[-L library-search-path] [-l library-specifier] [-minalign value] "
+         "[-multibase] [-nostdlib] [-o filename] [-osec] [-rpath path] "
+         "[-sc] [-sd] [-shared] [-soname name] [-static] "
          "[-T filename] [-Ttext addr] [-textbaserel] "
          "[-tos-flags/fastload/fastram/private/global/super/readable] "
          "[-u symbol] "
@@ -90,10 +86,12 @@ void show_usage(void)
          "-shared           generate shared object\n"
          "-soname <name>    set real name of shared object\n"
          "-export-dynamic   export all global symbols as dynamic symbols\n"
+         "-osec             output each section as an individual file\n"
          "-Rstd             standard relocation table\n"
          "-Radd             relocation table with addends\n"
          "-Rshort           relocation table with short offsets\n"
-         "-d                force allocation of common symbols\n"
+         "-d                force allocation of common symbols (also -dc,-dp)\n"
+         "-da               force allocation of address symbols (PowerOpen)\n"
          "-sc               merge all code sections\n"
          "-sd               merge all data and bss sections\n"
          "-t                trace file accesses by the linker\n"

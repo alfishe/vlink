@@ -1,11 +1,11 @@
-/* $VER: vlink t_aout.c V0.13 (25.11.10)
+/* $VER: vlink t_aout.c V0.14d (14.04.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -183,6 +183,7 @@ static void aout_create_section(struct ObjectUnit *ou,struct FFFuncs *ff,
     case ST_UDATA:
       protection = SP_READ|SP_WRITE;
       flags = SF_UNINITIALIZED;
+      data = NULL;
       break;
   }
   add_section(ou,sec_name,data,size,type,flags|SF_ALLOC,
@@ -246,6 +247,9 @@ static void aout_symbols(struct GlobalVars *gv,struct ObjectUnit *ou,
   uint32_t dataddr = read32(be,hdr->a_text);
   uint32_t bssaddr = dataddr + read32(be,&hdr->a_data);
   int i;
+
+  if (symtabsize == 0)
+    return;  /* no symbols */
 
   if (((uint8_t *)nlst < lf->data) || 
       ((uint8_t *)nlst + symtabsize > lf->data + lf->length))
@@ -533,6 +537,12 @@ static void aout_newreloc(struct GlobalVars *gv,struct aout_hdr *hdr,
         break;
       case R_PC:
         a += (lword)offs;
+        break;
+      case R_SD:
+        /* @@@ A local baserel relocation will not happen in standard a.out. */
+        /* A GOT base offset is always based on a symbol. But we use it here */
+        /* to support small data mode... */
+        a -= (lword)rsaddr;
         break;
     }
 
@@ -1045,7 +1055,8 @@ static void detect_movei_relocs(struct Reloc *first)
 
   for (r=first; r->n.next!=NULL; r=(struct Reloc *)r->n.next) {
     if (r->rtype==R_ABS && (ri = r->insert)) {
-      if (ri->bpos==0 && !ri->next && ri->bsiz==16 && ri->mask==0xffff0000) {
+      if (ri->bpos==0 && !ri->next && ri->bsiz==16 &&
+          (ri->mask&0xffffffff)==0xffff0000) {
         /* Found a MOVEI reloc candidate. The 16-bit word to the left needs
            another 16-bit reloc with mask=0xffff and the same addend
            to confirm it! */
@@ -1300,7 +1311,7 @@ void aout_writestrings(FILE *f,int be)
 static uint32_t aoutstd_getrinfo(struct GlobalVars *gv,struct Reloc *rel,
                                 bool xtern,const char *sname,uint32_t offs)
 /* convert vlink relocation type in standard a.out relocations, */
-/* as used by M68k and x86 targets,
+/* as used by M68k and x86 targets, */
 /* return ~0 when this relocation has to be ignored */
 {
   int be = fff[gv->dest_format]->endianess;

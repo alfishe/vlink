@@ -1,11 +1,11 @@
-/* $VER: vlink t_ataritos.c V0.13 (02.11.10)
+/* $VER: vlink t_ataritos.c V0.14e (25.08.14)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2014  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -198,12 +198,15 @@ static void tos_symboltable(struct GlobalVars *gv,FILE *f,
       for (sym=(struct Symbol *)sections[i]->symbols.first;
            sym->n.next!=NULL; sym=(struct Symbol *)sym->n.next) {
         if (!discard_symbol(gv,sym)) {
+          uint32_t val = sym->value;
           uint16_t t;
 
           if (sym->type == SYM_ABS) {
-            t = STYP_EQUATED;  /* @@@ correct? */
+            t = STYP_EQUATED;
           }
           else if (sym->type != SYM_COMMON) {
+            if (!gv->textbasedsyms)
+              val -= sections[i]->base;  /* symbol value as section offset */
             switch (i) {
               case 0: t = STYP_TEXT; break;
               case 1: t = STYP_DATA; break;
@@ -218,17 +221,33 @@ static void tos_symboltable(struct GlobalVars *gv,FILE *f,
           if (sym->bind > SYMB_LOCAL)
             t |= STYP_GLOBAL;
 
-          write_dri_sym(f,sym->name,t,sym->value);
+          write_dri_sym(f,sym->name,t,val);
+          /* FIXME: symbols in DRI objects do not sypport long names. */
         }
       }
 
       if (gv->dest_object) {
-        /* @@@ test - objects are not really supported for now... */
         for (xref=(struct Reloc *)sections[i]->xrefs.first;
              xref->n.next!=NULL; xref=(struct Reloc *)xref->n.next) {
-          /* @@@ no idea if this is correct - what about ref.type??? */
-          write_dri_sym(f,xref->xrefname,STYP_EXTERNAL,
-                        sections[i]->base + xref->offset);
+          /* This is what Devpac does. Relocations and external
+             reference types for each word are located after the symbols.
+             @@@ WARNING! Relocation and reference table is still missing.
+             Reengineered DRI Format of this table (not yet implemented):
+             One type-word for each word in a section.
+             0x0000 no reloation or reference
+             0x0001 data relocation
+             0x0002 text relocation
+             0x0003 bss relocation
+             0x0004 and greater (not 0x0005): external reference
+               Bit 15-3: symbol table index of reference (starting with 0)
+               Bit 2: always set for external reference
+               Bit 1-0: 00 AbsRef, 01 illegal?, 10 PCRelRef, 11 unknown
+             0x0005 32-bit prefix. Following word describes a relocation
+                    or reference for the 32-bit longword at this position. */
+
+          write_dri_sym(f,xref->xrefname,STYP_DEFINED|STYP_EXTERNAL,0);
+          /* FIXME: external symbols do not sypport long names and must
+             only appear once! */
         }
       }
     }
@@ -320,19 +339,22 @@ static void writeexec(struct GlobalVars *gv,FILE *f)
   int i;
 
   tos_header(f,sections[0] ? sections[0]->size+sections[0]->gapsize : 0,
-             sections[1] ? sections[1]->filesize : 0,
-             (sections[2] ? sections[2]->size : 0) +
-             (sections[1] ? sections[1]->gapsize : 0),
+             sections[1] ? sections[1]->size+sections[1]->gapsize : 0,
+             sections[2] ? sections[2]->size : 0,
              (unsigned long)nsyms*sizeof(struct DRIsym),gv->tosflags);
 
   for (i=0; i<3; i++)
     calc_relocs(gv,sections[i]);
 
-  if (sections[0])
-    fwritex(f,sections[0]->data,sections[0]->size+sections[0]->gapsize);
+  if (sections[0]) {
+    fwritex(f,sections[0]->data,sections[0]->filesize);
+    fwritegap(f,(sections[0]->size-sections[0]->filesize)+sections[0]->gapsize);
+  }
 
-  if (sections[1])
+  if (sections[1]) {
     fwritex(f,sections[1]->data,sections[1]->filesize);
+    fwritegap(f,(sections[1]->size-sections[1]->filesize)+sections[1]->gapsize);
+  }
 
   if (nsyms)
     tos_symboltable(gv,f,sections);

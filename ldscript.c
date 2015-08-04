@@ -1,11 +1,11 @@
-/* $VER: vlink ldscript.c V0.13 (02.11.10)
+/* $VER: vlink ldscript.c V0.14b (29.08.13)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2013  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2013 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -18,6 +18,8 @@
 #include "vlink.h"
 #include "elfcommon.h"
 #include "ldscript.h"
+
+#define DUMMY_SEC_FROM_PATTERN 1
 
 
 static const char *scriptbase = NULL;
@@ -53,6 +55,8 @@ static const char *defnot = " note";
 static int sf_addr(struct GlobalVars *,lword,lword *);
 static int sf_align(struct GlobalVars *,lword,lword *);
 static int sf_loadaddr(struct GlobalVars *,lword,lword *);
+static int sf_max(struct GlobalVars *,lword,lword *);
+static int sf_min(struct GlobalVars *,lword,lword *);
 static int sf_sizeof(struct GlobalVars *,lword,lword *);
 static int sf_sizeofheaders(struct GlobalVars *,lword,lword *);
 
@@ -60,6 +64,8 @@ struct ScriptFunc ldFunctions[] = {
   { "ADDR",sf_addr },
   { "ALIGN",sf_align },
   { "LOADADDR",sf_loadaddr },
+  { "MAX",sf_max },
+  { "MIN",sf_min },
   { "SIZEOF",sf_sizeof },
   { "SIZEOF_HEADERS",sf_sizeofheaders },
   { NULL,NULL }
@@ -70,6 +76,7 @@ struct ScriptFunc ldFunctions[] = {
 static void sc_ctors_gnu(struct GlobalVars *);
 static void sc_ctors_vbcc(struct GlobalVars *);
 static void sc_ctors_vbcc_elf(struct GlobalVars *);
+static void sc_assert(struct GlobalVars *);
 static void sc_entry(struct GlobalVars *);
 static void sc_extern(struct GlobalVars *);
 static void sc_fill(struct GlobalVars *);
@@ -78,6 +85,7 @@ static void sc_provide(struct GlobalVars *);
 static void sc_searchdir(struct GlobalVars *);
 
 struct ScriptCmd ldCommands[] = {
+  { "ASSERT",SCMDF_PAREN|SCMDF_GLOBAL,sc_assert },
   { "CONSTRUCTORS",SCMDF_GLOBAL,sc_ctors_gnu },
   { "ENTRY",SCMDF_PAREN|SCMDF_GLOBAL,sc_entry },
   { "EXTERN",SCMDF_PAREN|SCMDF_GLOBAL,sc_extern },
@@ -146,25 +154,6 @@ static int parse_assignment_expr(lword caddr,lword *result,int provided)
 #endif
 
 
-static lword term_absexp(void)
-{
-  lword val = 0;
-
-  if (getchr() == '(') {
-    if (!parse_expr(-1,&val))
-      error(67,scriptname,getlineno());  /* Absolute number expected */
-    if (getchr() != ')') {
-      error(66,scriptname,getlineno(),')');  /* ')' expected */
-      skipblock(1,'(',')');
-    }
-  }
-  else
-    error(66,scriptname,getlineno(),'(');  /* '(' expected */
-
-  return val;
-}
-
-
 static bool startofblock(char c)
 {
   if (getchr() != c) {
@@ -184,6 +173,40 @@ static bool endofblock(char c1,char c2)
     return FALSE;
   }
   return TRUE;
+}
+
+
+static lword term_absexp(void)
+{
+  lword val = 0;
+
+  if (startofblock('(')) {
+    if (!parse_expr(-1,&val))
+      error(67,scriptname,getlineno());  /* Absolute number expected */
+    endofblock('(',')');
+  }
+  return val;
+}
+
+
+static void term_two_exp(lword caddr,
+                         int *abs1,lword *val1,int *abs2,lword *val2)
+{
+  *abs1 = *abs2 = 1;
+  *val1 = *val2 = 0;
+
+  if (startofblock('(')) {
+    *abs1 = parse_expr(caddr,val1);
+    skip();
+    if (getchr() == ',') {
+      *abs2 = parse_expr(caddr,val2);
+      endofblock('(',')');
+    }
+    else {
+      error(66,scriptname,getlineno(),',');  /* ',' expected */
+      skipblock(1,'(',')');
+    }
+  }
 }
 
 
@@ -392,6 +415,7 @@ static void skip_expr(int provided)
 }
 
 
+#if !DUMMY_SEC_FROM_PATTERN
 static struct Section *get_dummy_sec(const char *name)
 /* return dummy section of our artificial script-object with name */
 {
@@ -406,6 +430,7 @@ static struct Section *get_dummy_sec(const char *name)
     ierror("get_dummy_sec(): Dummy section \"%s\" not found",name);
   return sec;
 }
+#endif
 
 
 static void symbol_assignment(struct GlobalVars *gv,
@@ -466,13 +491,14 @@ static void symbol_assignment(struct GlobalVars *gv,
             if (current_ls) {
               /* assign section and remove from scriptsymbol list,
                  will be moved into section's symbol list in linker_copy() */
-              if (listempty(&current_ls->sections)) {
+              #if !DUMMY_SEC_FROM_PATTERN
+              if (listempty(&current_ls->sections))
                 sym->relsect = get_dummy_sec(current_ls->name);
-                /* a section with symbols must be allocated? @@@ */
-                current_ls->flags |= SF_ALLOC;
-              }
               else
+              #endif
                 sym->relsect = (struct Section *)current_ls->sections.first;
+              /* a section with symbols must be allocated? @@@ */
+              current_ls->flags |= SF_ALLOC;
               remnode(&sym->n);
             }
             else
@@ -508,7 +534,8 @@ static struct LinkedSection *getsection(struct GlobalVars *gv)
 
 
 #if DUMMY_SEC_FROM_PATTERN
-static struct Section *make_dummy_sec_from_pattern(struct GlobalVars *gv)
+static struct Section *make_dummy_sec_from_pattern(struct GlobalVars *gv,
+                                                   struct LinkedSection *ls)
 /* The first section is always an empty dummy section, which is needed
    for all symbol definitions by the linker script.
    Its 'lnksec' reference and 'va' will be set during linking.
@@ -545,7 +572,8 @@ static struct Section *make_dummy_sec_from_pattern(struct GlobalVars *gv)
   *np = '\0';
 
   dummy = create_section(script_obj,name,NULL,0);
-  addtail(&script_obj->sections,&dummy->n);
+  dummy->lnksec = ls;  /* assign to ls */
+  addtail(&ls->sections,&dummy->n);
   return dummy;
 }
 #endif
@@ -584,6 +612,36 @@ static int sf_loadaddr(struct GlobalVars *gv,lword addr,lword *res)
     endofblock('(',')');
   }
   return 1;
+}
+
+
+static int sf_max(struct GlobalVars *gv,lword addr,lword *res)
+{
+  int abs1,abs2;
+  lword val1,val2;
+
+  term_two_exp(addr,&abs1,&val1,&abs2,&val2);
+  if (val1 < val2) {
+    *res = val2;
+    return abs2;
+  }
+  *res = val1;
+  return abs1;
+}
+
+
+static int sf_min(struct GlobalVars *gv,lword addr,lword *res)
+{
+  int abs1,abs2;
+  lword val1,val2;
+
+  term_two_exp(addr,&abs1,&val1,&abs2,&val2);
+  if (val1 > val2) {
+    *res = val2;
+    return abs2;
+  }
+  *res = val1;
+  return abs1;
 }
 
 
@@ -643,6 +701,33 @@ static void sc_ctors_vbcc_elf(struct GlobalVars *gv)
 /* VBCC_CONSTRUCTORS_ELF */
 {
   set_ctors_type(gv,CCDT_VBCC_ELF);
+}
+
+
+static void sc_assert(struct GlobalVars *gv)
+/* ASSERT(expression,"message") */
+{
+  if (startofblock('(')) {
+    struct LinkedSection *cls = current_ls;
+    struct MemoryDescr *md = cls ? cls->relocmem : vdefmem;
+    lword val = -1;
+    char *msg;
+
+    if (!preparse)
+      parse_expr(md->current,&val);
+    else
+      parse_expr(-2,&val);
+
+    if (getchr() == ',')
+      msg = getquoted();
+    else
+      msg = NULL;
+
+    if (val == 0)
+      error(73,scriptname,getlineno(),msg?msg:noname);
+
+    endofblock('(',')');
+  }
 }
 
 
@@ -938,8 +1023,10 @@ static struct Phdr **endofsecdef(struct GlobalVars *gv,
             }
           }
           else {
-            back(1);
-            error(65,scriptname,getlineno(),getword());
+            /* it's not AT, but maybe an ASSERT keyword, so get out */
+            back(2);
+            done = 1;
+            break;
           }
         }
         if (buf = getword()) {
@@ -1055,17 +1142,15 @@ static int check_command(struct GlobalVars *gv,char *name,uint32_t flags)
 }
 
 
-static lword readmemparam(char *key)
+static lword readmemparam(struct GlobalVars *gv,char *key)
 {
   char *str;
   lword val = 0;
 
   if (str = getword()) {
     if (toupper((unsigned char)*str) == *key) {
-      if (getchr() == '=') {
-        if (!parse_expr(-1,&val))
-          error(67,scriptname,getlineno());  /* Absolute number expected */
-      }
+      if (getchr() == '=')
+        parse_expr(gv->start_addr,&val);  /* . is start address */
       else
         error(66,scriptname,getlineno(),'=');
     }
@@ -1095,9 +1180,9 @@ static void define_memory(struct GlobalVars *gv)
         c = getchr();
       }
       if (c == ':') {
-        org = readmemparam("ORIGIN");
+        org = readmemparam(gv,"ORIGIN");
         if (getchr() == ',') {
-          len = readmemparam("LENGTH");
+          len = readmemparam(gv,"LENGTH");
           add_memblock(memname,org,len);
         }
         else
@@ -1257,7 +1342,7 @@ static void predefine_sections(struct GlobalVars *gv)
                   /* skip section pattern */
                   #if DUMMY_SEC_FROM_PATTERN
                   if (!dummy_sec)
-                    dummy_sec = make_dummy_sec_from_pattern(gv);
+                    dummy_sec = make_dummy_sec_from_pattern(gv,ls);
                   #else
                   if (!dummy_sec) {
                     dummy_sec = create_section(script_obj,s_name,NULL,0);
@@ -1324,6 +1409,13 @@ static void predefine_sections(struct GlobalVars *gv)
                 use_segment(gv,pname,type,ls->relocmem,ls->destmem);
             }
           }
+          else {
+            /* set default memory regions in error case to avoid segfault */
+            if (ls->relocmem == NULL)
+              ls->relocmem = vdefmem;
+            if (ls->destmem == NULL)
+              ls->destmem = ldefmem;
+          }
         }
         else {
           free((void *)s_name);
@@ -1372,11 +1464,19 @@ static void add_section_to_segments(struct GlobalVars *gv,
         p->start = p->file_end = ls->copybase;
       if (p->start_vma == ADDR_NONE)
         p->start_vma = ls->base;
-      p->mem_end = ls->copybase + ls->size;
-      if (ls->filesize)
-        p->file_end = ls->copybase + ls->filesize;
-      if (ls->alignment > p->alignment)
-        p->alignment = ls->alignment;
+      if ((lword)ls->copybase < p->mem_end) {
+        /* section conflicts with segment - it doesn't cleanly attach to it */
+        error(83,ls->name,(lword)ls->copybase,
+              (lword)ls->copybase+(lword)ls->size,
+              p->name,p->start,p->mem_end);
+      }
+      else {
+        p->mem_end = ls->copybase + ls->size;
+        if (ls->filesize)
+          p->file_end = ls->copybase + ls->filesize;
+        if (ls->alignment > p->alignment)
+          p->alignment = ls->alignment;
+      }
     }
 
     /* move referenced segment to the end of the list */

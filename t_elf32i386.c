@@ -41,10 +41,10 @@ struct FFFuncs fff_elf32i386 = {
   i386_identify,
   i386_readconv,
   NULL,
-  elf32_targetlink,
+  elf_targetlink,
   NULL,
-  elf32_lnksym,
-  elf32_setlnksym,
+  elf_lnksym,
+  elf_setlnksym,
   elf32_initdynlink,
   i386_dynentry,
   i386_dyncreate,
@@ -116,8 +116,8 @@ static char linkerdb[] = "_LinkerDB";
 static int i386_identify(char *name,uint8_t *p,unsigned long plen,bool lib)
 /* identify ELF-386-32Bit-LittleEndian */
 {
-  return (elf32_identify(&fff_elf32i386,name,(struct Elf32_Ehdr *)p,plen,
-                         ELFCLASS32,ELFDATA2LSB,EM_386,ELF_VER));
+  return elf_identify(&fff_elf32i386,name,p,plen,
+                       ELFCLASS32,ELFDATA2LSB,EM_386,ELF_VER);
 }
 
 
@@ -150,7 +150,7 @@ static uint8_t i386_reloc_elf2vlink(uint8_t rtype,struct RelocInsert *ri)
   else
     rtype = R_NONE;
 
-  return (rtype);
+  return rtype;
 }
 
 
@@ -163,9 +163,8 @@ static void i386_readconv(struct GlobalVars *gv,struct LinkFile *lf)
     if (ar_init(&ai,(char *)lf->data,lf->length,lf->filename)) {
       while (ar_extract(&ai)) {
         lf->objname = allocstring(ai.name);
-        elf32_check_ar_type(fff[lf->format],lf->pathname,
-                            (struct Elf32_Ehdr *)ai.data,
-                            ELFCLASS32,ELFDATA2LSB,ELF_VER,1,EM_386);
+        elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
+                          ELFCLASS32,ELFDATA2LSB,ELF_VER,1,EM_386);
         elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,i386_reloc_elf2vlink);
       }
     }
@@ -193,17 +192,14 @@ static struct Symbol *i386_dynentry(struct GlobalVars *gv,DynArg a,int etype)
     case GOT_LOCAL:
       /* .got has 12 bytes reserved at the beginning,
          is writable, a new entry occupies 4 bytes. */
-      sec = elf32_dyntable(gv,12,12,ST_DATA,SF_ALLOC,
-                           SP_READ|SP_WRITE,GOT_ENTRY);
+      sec = elf_dyntable(gv,12,12,ST_DATA,SF_ALLOC,SP_READ|SP_WRITE,GOT_ENTRY);
       entry_sym = elf32_pltgotentry(gv,sec,a,SYMI_OBJECT,4,4,etype);
       break;
 
     case PLT_ENTRY:
       /* .plt has 16 bytes reserved at the beginning, is executable,
          a new entry occupies another 16 bytes. */
-      sec = elf32_dyntable(gv,16,16,ST_CODE,SF_ALLOC,
-                           SP_READ|SP_EXEC,PLT_ENTRY);
-
+      sec = elf_dyntable(gv,16,16,ST_CODE,SF_ALLOC,SP_READ|SP_EXEC,PLT_ENTRY);
       entry_sym = elf32_pltgotentry(gv,sec,a,SYMI_FUNC,16,16,PLT_ENTRY);
       break;
 
@@ -241,9 +237,9 @@ static int aros_targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
         (!strncmp(ls->name,sbss_name,5) && !strncmp(s->name,sdata_name,6)
          && *(ls->name+5) == *(s->name+6)))
       /* .sdata/.sbss, .sdata2/.sbss2, etc. are always combined */
-      return (1);
+      return 1;
   }
-  return (0);
+  return 0;
 }
 
 
@@ -266,11 +262,11 @@ static struct Symbol *aros_lnksym(struct GlobalVars *gv,struct Section *sec,
         sdabase->type = SYM_RELOC;
         sdabase->extra = SDABASE;
       }
-      return (sym);  /* new linker symbol created */
+      return sym;  /* new linker symbol created */
     }
   }
 
-  return (elf32_lnksym(gv,sec,xref));
+  return elf_lnksym(gv,sec,xref);
 }
 
 
@@ -288,7 +284,7 @@ static void aros_setlnksym(struct GlobalVars *gv,struct Symbol *xdef)
     xdef->flags &= ~SYMF_LNKSYM;  /* do not init again */
   }
   else
-    elf32_setlnksym(gv,xdef);
+    elf_setlnksym(gv,xdef);
 }
 
 #endif /* ELF32_AROS */
