@@ -1,11 +1,11 @@
-/* $VER: vlink config.h V0.14a (02.08.12)
+/* $VER: vlink config.h V0.15a (22.01.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2012  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2012 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -59,6 +59,7 @@
 #define ELF32_386           /* ELF 386 32-Bit Little Endian */
 #define ELF32_AROS          /* ELF 386 relocatable for AROS */
 #define ELF32_ARM_LE        /* ELF ARM 32-Bit Little Endian */
+#define ELF32_JAG           /* ELF Jaguar RISC 32-Bit Big Endian */
 
 #define ELF64               /* general 64-bit ELF support */
 #define ELF64_X86           /* ELF x86_64 64-Bit Little Endian */

@@ -1,11 +1,11 @@
-/* $VER: vlink errors.c V0.12d (03.05.09)
+/* $VER: vlink errors.c V0.15a (09.12.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2009  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2009 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -191,6 +191,8 @@ static struct {
   "%s: ELF symbol name has illegal offset 0x%lx in %s",EF_FATAL,
   "%s: Unkown endianess defaults to %s-endian. "
     "Consider using -EB/-EL",EF_WARNING,
+  "Resetting the same attribute for section %s",EF_WARNING,
+  "Bad assignment after option '%s'",EF_FATAL,                     /* 130 */
 };
 
 

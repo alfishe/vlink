@@ -1311,7 +1311,7 @@ static void elf32_makestabs(struct GlobalVars *gv)
           ierror("%s: .stab already in use",fn);
       }
       else
-        ls = create_lnksect(gv,".stab",ST_DATA,0,SP_READ,2);
+        ls = create_lnksect(gv,".stab",ST_DATA,0,SP_READ,2,0);
       ls->size = ls->filesize = stabsize;
       ls->data = (uint8_t *)nlst;
 

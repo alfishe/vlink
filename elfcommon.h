@@ -1,11 +1,11 @@
-/* $VER: vlink elfcommon.h V0.14 (29.07.11)
+/* $VER: vlink elfcommon.h V0.15a (22.01.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2011  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2011 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -76,6 +76,7 @@
 #define EM_COLDFIRE       52
 #define EM_68HC12         53
 #define EM_X86_64         62
+#define EM_JAGRISC        0x9004
 #define EM_CYGNUS_POWERPC 0x9025
 #define EM_ALPHA          0x9026
 

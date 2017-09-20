@@ -1,11 +1,11 @@
-/* $VER: vlink targets.c V0.15 (23.12.14)
+/* $VER: vlink targets.c V0.15a (04.02.16)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2014  Frank Wille
+ * Copyright (c) 1997-2016  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2016 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -47,6 +47,9 @@ struct FFFuncs *fff[] = {
 #endif
 #ifdef ELF32_ARM_LE
   &fff_elf32armle,
+#endif
+#ifdef ELF32_JAG
+  &fff_elf32jag,
 #endif
 #ifdef ELF64_X86
   &fff_elf64x86,
@@ -1517,6 +1520,56 @@ void add_objunit(struct GlobalVars *gv,struct ObjectUnit *ou,bool fixrelocs)
 }
 
 
+struct SecAttrOvr *addsecattrovr(struct GlobalVars *gv,char *name,
+                                 uint32_t flags)
+/* Create a new SecAttrOvr node and append it to the list. When a node
+   for the same input section name is already present, then reuse it.
+   Print a warning, when trying to reset the same attribute. */
+{
+  struct SecAttrOvr *sao;
+
+  for (sao=gv->secattrovrs; sao!=NULL; sao=sao->next) {
+    if (!strcmp(sao->name,name))
+      break;
+  }
+
+  if (sao != NULL) {
+    if ((sao->flags & flags) != 0)
+      error(129,name);  /* resetting attribute for section */
+  }
+  else {
+    struct SecAttrOvr *prev = gv->secattrovrs;
+
+    sao = alloczero(sizeof(struct SecAttrOvr)+strlen(name));
+    strcpy(sao->name,name);
+    if (prev) {
+      while (prev->next)
+        prev = prev->next;
+      prev->next = sao;
+    }
+    else
+      gv->secattrovrs = sao;
+  }
+
+  sao->flags |= flags;
+  return sao;
+}
+
+
+struct SecAttrOvr *getsecattrovr(struct GlobalVars *gv,const char *name,
+                                 uint32_t flags)
+/* Return a SecAttrOvr node which matches section name and flags. */
+{
+  struct SecAttrOvr *sao;
+
+  for (sao=gv->secattrovrs; sao!=NULL; sao=sao->next) {
+    if (!strcmp(sao->name,name) && (sao->flags & flags)!=0)
+      break;
+  }
+  return sao;
+}
+
+
 struct Section *create_section(struct ObjectUnit *ou,const char *name,
                                uint8_t *data,unsigned long size)
 /* creates and initializes a Section node */
@@ -1633,7 +1686,8 @@ struct Section *dummy_section(struct GlobalVars *gv,struct ObjectUnit *ou)
 
 struct LinkedSection *create_lnksect(struct GlobalVars *gv,const char *name,
                                      uint8_t type,uint8_t flags,
-                                     uint8_t protection,uint8_t alignment)
+                                     uint8_t protection,uint8_t alignment,
+                                     uint32_t memattr)
 /* create and initialize a LinkedSection node and include */
 /* it in the global list */
 {
@@ -1645,6 +1699,7 @@ struct LinkedSection *create_lnksect(struct GlobalVars *gv,const char *name,
   ls->flags = flags;
   ls->protection = protection;
   ls->alignment = alignment;
+  ls->memattr = memattr;
   initlist(&ls->sections);
   initlist(&ls->relocs);
   initlist(&ls->xrefs);
@@ -1658,8 +1713,14 @@ static struct Section *add_xtor_section(struct GlobalVars *gv,
                                         struct ObjectUnit *ou,const char *name,
                                         uint8_t *data,unsigned long size)
 {
-  return add_section(ou,name,data,size,ST_DATA,
-                     SF_ALLOC,SP_READ|SP_WRITE,2,FALSE);
+  struct Section *sec = add_section(ou,name,data,size,ST_DATA,
+                                    SF_ALLOC,SP_READ|SP_WRITE,2,FALSE);
+  struct SecAttrOvr *sao;
+
+  if (sao = getsecattrovr(gv,name,SAO_MEMFLAGS))
+    sec->memattr = sao->memflags;
+
+  return sec;
 }
 
 

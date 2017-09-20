@@ -1,11 +1,11 @@
-/* $VER: vlink t_amigahunk.c V0.15 (23.12.14)
+/* $VER: vlink t_amigahunk.c V0.15a (04.02.16)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2014  Frank Wille
+ * Copyright (c) 1997-2016  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2016 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -20,45 +20,12 @@
 #include "vlink.h"
 #include "amigahunks.h"
 
-#define EXT_IGNORE 0x100
-
-struct HunkInfo {
-  uint8_t *hunkbase;    /* base address of amigaos/ehf file */
-  uint8_t *hunkptr;     /* current hunk data pointer */
-  long hunkcnt;         /* remaining bytes in this file */
-  const char *filename;
-  bool exec;            /* executable file? */
-  uint8_t *libbase;     /* base address HUNK_LIB data (hunk data) */
-  uint8_t *indexbase;   /* HUNK_INDEX data base address */
-  uint8_t *indexptr;    /* current HUNK_INDEX data pointer */
-  long indexcnt;        /* remaining bytes in HUNK_INDEX */
-  long savedhunkcnt;    /* hunkcnt to restore after HUNK_LIB is parsed */
-};
-
-struct XRefNode {
-  struct node n;
-  const char *sym_name;
-  uint8_t ref_type;
-  uint32_t com_size;
-  int noffsets;
-  struct list xreflist;
-};
-
-#define SUBID_LINE 1
-struct LineDebug {
-  struct TargetExt tgext;   /* id = TGEXT_AMIGAOS, subid = SUBID_LINE */
-  const char *source_name;  /* full path to source text */
-  uint32_t num_entries;     /* number of entries in line/offset table */
-  uint32_t *lines;
-  uint32_t *offsets;
-};
-
 
 static int ados_identify(char*,uint8_t *,unsigned long,bool);
 static int ehf_identify(char *,uint8_t *,unsigned long,bool);
 static int identify(char *,uint8_t *,unsigned long,bool);
 static void readconv(struct GlobalVars *,struct LinkFile *);
-static uint8_t cmpsecflags(uint8_t,uint8_t);
+static uint8_t cmpsecflags(struct LinkedSection *,struct Section *);
 static int targetlink(struct GlobalVars *,struct LinkedSection *,
                       struct Section *);
 static struct Symbol *ados_lnksym(struct GlobalVars *,struct Section *,
@@ -132,6 +99,8 @@ struct FFFuncs fff_ehf = {
 /* Automagically create symbols in .tocd, which start with the */
 /* following letters: */
 static char ehf_addrsym[] = "@_";
+
+static char tocd_name[] = ".tocd";
 
 static char *ados_symnames[] = {
   /* PhxAss */     "_DATA_BAS_","_DATA_LEN_","_BSS_LEN_",
@@ -279,7 +248,14 @@ static uint32_t skiphunk(struct HunkInfo *hi)
 {
   uint32_t type,n;
 
-  switch (type = read32be(hi->hunkptr) & 0x3fffffff) {
+  n = read32be(hi->hunkptr);
+  type = n & 0xffff;
+
+  if ((type==HUNK_PPC_CODE || (type>=HUNK_CODE && type<=HUNK_BSS)) &&
+      (n & HUNKF_MEMTYPE) == (HUNKF_FAST|HUNKF_CHIP))
+    movehunkptr32(hi,1);  /* skip memory attributes @@@ inofficial! */
+
+  switch (type) {
     case HUNK_UNIT:
     case HUNK_NAME:
     case HUNK_CODE:
@@ -342,8 +318,8 @@ static uint32_t skiphunk(struct HunkInfo *hi)
       n = nextword32(hi);  /* first root hunk index */
       n = nextword32(hi) - n + 1;  /* number of size specifiers */
       while (n--) {
-        if ((nextword32(hi) & 0xc0000000) == 0xc0000000)
-        nextword32(hi);
+        if ((nextword32(hi) & HUNKF_MEMTYPE) == (HUNKF_FAST|HUNKF_CHIP))
+          nextword32(hi);
       }
       break;
 
@@ -432,7 +408,7 @@ static int identify(char *name,uint8_t *p,unsigned long plen,bool lib)
   /* Now check if any unit contains EHF hunks */
   init_hunkinfo(&hi,name,p,plen);
   while (w = skiphunk(&hi)) {
-    if (w == HUNK_PPC_CODE)
+    if (w & 0xffff == HUNK_PPC_CODE)
       return -type;  /* it's an EHF object/library, containing PPC code */
   }
   return type;
@@ -622,6 +598,7 @@ static void readconv(struct GlobalVars *gv,struct LinkFile *lf)
   uint32_t w;
   struct ObjectUnit *u=NULL;
   struct Section *s=NULL;
+  struct SecAttrOvr *sao;
   char *secname=NULL;
   uint8_t *headerattr=NULL;
   uint16_t hunksleft;
@@ -631,7 +608,7 @@ static void readconv(struct GlobalVars *gv,struct LinkFile *lf)
   init_hunkinfo(&hi,lf->filename,lf->data,lf->length);
 
   while (w = testword32(&hi)) {
-    switch (w & 0x3fffffff) {
+    switch (w & ~HUNKF_MEMTYPE) {
 
       case HUNK_HEADER:
         /* header must be at the beginning of the file */
@@ -640,7 +617,7 @@ static void readconv(struct GlobalVars *gv,struct LinkFile *lf)
             uint32_t n;
             add_objunit(gv,u,TRUE); /* add last one to glob. ObjUnit list */
             index = 0;
-            u = create_objunit(gv,lf,lf->filename);
+            create_objunit(gv,lf,lf->filename);
             u = NULL;
             nextword32(&hi);
             n = nextword32(&hi);
@@ -649,7 +626,7 @@ static void readconv(struct GlobalVars *gv,struct LinkFile *lf)
             n = nextword32(&hi) - w + 1;  /* number of size specifiers */
             headerattr = hi.hunkptr;  /* remember section attributes */
             while (n--) {
-              if ((nextword32(&hi) & 0xc0000000) == 0xc0000000)
+              if ((nextword32(&hi) & HUNKF_MEMTYPE) == (HUNKF_FAST|HUNKF_CHIP))
                 nextword32(&hi);
             }
           }
@@ -718,21 +695,26 @@ static void readconv(struct GlobalVars *gv,struct LinkFile *lf)
       case HUNK_DATA:
       case HUNK_BSS:
         if (u && !s) {  /* a new Section */
-          uint8_t s_attr;
-          unsigned long s_size;
+          uint32_t s_attr,s_size;
           nextword32(&hi);
 
-          /* determine section attributes */
+          /* determine section's memory attributes */
           if (headerattr) {
-            if ((s_attr = (read32be(headerattr)>>24) & 0xc0) == 0xc0) {
-              s_attr = 0;  /* ext. mem. type identifier is not supported */
-              headerattr += 8;
-            }
-            else
+            /* from an executable file */
+            s_attr = (read32be(headerattr)>>29) & (MEMF_FAST|MEMF_CHIP);
+            headerattr += 4;
+            if (s_attr == (MEMF_FAST|MEMF_CHIP)) {
+              /* extended memory attributes in next word */
+              s_attr = read32be(headerattr);
               headerattr += 4;
+            }
           }
-          else
-            s_attr = (w>>24) & 0xc0;  /* SF_FAST | SF_CHIP */
+          else {
+            /* from an object file */
+            s_attr = (w>>29) & (MEMF_FAST|MEMF_CHIP);
+            if (s_attr == (MEMF_FAST|MEMF_CHIP))
+              s_attr = nextword32(&hi);  /* @@@ this seems inofficial! */
+          }
 
           if (gv->fix_unnamed==TRUE &&
               (secname==NULL || (secname!=NULL && *secname=='\0'))) {
@@ -758,12 +740,16 @@ static void readconv(struct GlobalVars *gv,struct LinkFile *lf)
           }
 
           /* create new section node */
-          s_size = (unsigned long)nextword32(&hi) & 0x3fffffff;
+          s_size = nextword32(&hi) & ~HUNKF_MEMTYPE;
           s = create_section(u,secname,
                              (w&0xffff)!=HUNK_BSS ? hi.hunkptr : NULL,
-                             s_size<<2);
-          s->flags = s_attr | SF_ALLOC;
+                             (unsigned long)s_size<<2);
+          s->flags = SF_ALLOC;
           s->alignment = gv->min_alignment>2 ? gv->min_alignment : 2;
+          if (sao = getsecattrovr(gv,secname,SAO_MEMFLAGS))
+            s->memattr = sao->memflags;
+          else
+            s->memattr = s_attr;
           s->id = index++;
           switch (w & 0xffff) {
             case HUNK_PPC_CODE:
@@ -1063,16 +1049,14 @@ hunk_lib_done:
 /*****************************************************************/
 
 
-static uint8_t cmpsecflags(uint8_t oldflags,uint8_t newflags)
+static uint8_t cmpsecflags(struct LinkedSection *ls,struct Section *sec)
 /* compare and verify target-specific section flags, */
 /* return 0xff if sections are incompatible, otherwise return new flags */
 {
-  if (oldflags&SF_EHFPPC != newflags&SF_EHFPPC)
+  if (ls->flags&SF_EHFPPC != sec->flags&SF_EHFPPC)
     return 0xff;
-  if ((oldflags&(SF_CHIP|SF_FAST))==0 ||
-      (newflags&(SF_CHIP|SF_FAST))==0 ||
-      (oldflags&(SF_CHIP|SF_FAST)) == (newflags&(SF_CHIP|SF_FAST)))
-    return newflags | (oldflags&(SF_CHIP|SF_FAST));
+  if (!ls->memattr || !sec->memattr || ls->memattr==sec->memattr)
+    return ls->flags | sec->flags;
   return 0xff;
 }
 
@@ -1096,14 +1080,11 @@ static int targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
   if (!strcmp(s->name,"_NOMERGE"))
     return -1;
 
-  /* Executable only: */
-  if (!gv->dest_object) {
-    if (!strcmp(ls->name,merged) && !strcmp(s->name,merged)) {
-      /* data and bss section with name __MERGED are always combined */
-      if (s->type == ST_CODE)
-        error(57,getobjname(s->obj)); /* Merging code section "__MERGED" */
-      return 1;
-    }
+  if (!strcmp(ls->name,merged) && !strcmp(s->name,merged)) {
+    /* data and bss section with name __MERGED are always combined */
+    if (s->type == ST_CODE)
+      error(57,getobjname(s->obj)); /* Merging code section "__MERGED" */
+    return 1;
   }
 
   return 0;
@@ -1251,6 +1232,7 @@ static struct Symbol *ehf_lnksym(struct GlobalVars *gv,struct Section *sec,
         /* The symbol without "@_" has to exist. */
         char *objname = alloc(strlen(symname)+3);
         uint8_t *dat = alloczero(sizeof(uint32_t)); /* space for a 32-bit ptr */
+        struct SecAttrOvr *sao;
         struct ObjectUnit *ou;
         struct Section *s;
         struct Symbol *sym;
@@ -1259,8 +1241,10 @@ static struct Symbol *ehf_lnksym(struct GlobalVars *gv,struct Section *sec,
         /* create an artificial object with a ".tocd" data section */
         sprintf(objname,"%s.o",symname);
         ou = art_objunit(gv,objname,dat,sizeof(uint32_t));
-        s = add_section(ou,".tocd",dat,sizeof(uint32_t),ST_DATA,
+        s = add_section(ou,tocd_name,dat,sizeof(uint32_t),ST_DATA,
                         SF_ALLOC,SP_READ|SP_WRITE,2,FALSE);
+        if (sao = getsecattrovr(gv,tocd_name,SAO_MEMFLAGS))
+          s->memattr = sao->memflags;
 
         /* "@__name" contains a 32-bit reloc pointer, which has an */
         /* external reference to the symbol "_name". */
@@ -1301,6 +1285,26 @@ static void ehf_setlnksym(struct GlobalVars *gv,struct Symbol *xdef)
 static unsigned long headersize(struct GlobalVars *gv)
 {
   return 0;  /* irrelevant for ADOS/EHF */
+}
+
+
+static void hunk_memdata(FILE *f,uint32_t mem,uint32_t dat)
+/* write a data word with memory flags, add extension word for full
+   list of memory attributes, when needed (other than CHIP or FAST) */
+{
+  if ((mem & ~MEMF_PUBLIC) == 0) {
+    fwrite32be(f,dat);
+  }
+  else if ((mem & ~MEMF_PUBLIC) == MEMF_CHIP) {
+    fwrite32be(f,HUNKF_CHIP|dat);
+  }
+  else if ((mem & ~MEMF_PUBLIC) == MEMF_FAST) {
+    fwrite32be(f,HUNKF_FAST|dat);
+  }
+  else {
+    fwrite32be(f,HUNKF_FAST|HUNKF_CHIP|dat);
+    fwrite32be(f,mem);
+  }
 }
 
 
@@ -1627,12 +1631,10 @@ static void reloc_hunk(struct GlobalVars *gv,FILE *f,
         /* move reloc node of correct type into relocssect's rlist */
         remnode(&rel->n);
         addtail(rlist[rel->relocsect.lnk->index],&rel->n);
-        newrcnt = ++rcnt[rel->relocsect.lnk->index];
         rel->offset += rpos >> 3;
-        if (gv->reloctab_format == RTAB_SHORTOFF) {
-          if (rel->offset>=0x10000 || newrcnt>=0x10000)
-            small_offsets = FALSE; /* no short-reloc hunk would be possible */
-        }
+        if (++rcnt[rel->relocsect.lnk->index] >= 0x10000 ||
+            rel->offset >= 0x10000)
+          small_offsets = FALSE; /* no short-reloc hunk would be possible */
         hunk_required = TRUE;
       }
     }
@@ -1641,17 +1643,28 @@ static void reloc_hunk(struct GlobalVars *gv,FILE *f,
 
   if (hunk_required) {  /* there's at least one relocation */
 
-    if (relhunk==HUNK_ABSRELOC32 &&
-        gv->reloctab_format==RTAB_SHORTOFF && small_offsets) {
+    if ((relhunk==HUNK_ABSRELOC32 &&
+         gv->reloctab_format==RTAB_SHORTOFF && small_offsets) ||
+        (relhunk==HUNK_RELRELOC32 && !gv->dest_object)) {
       /* Make a short hunk with 16-bit offsets.
          For executables, HUNK_DREL32 is used instead of the correct
-         HUNK_RELOC32SHORT to be compatible with OS2.0 */
+         HUNK_RELOC32SHORT to be compatible with OS2.0.
+         Due to a bug in OS3.x HUNK_RELRELOC32 requires 16-bit offsets
+         in executables. */
       int cnt=0;
 
-      if (gv->dest_object)
-        fwrite32be(f,HUNK_RELOC32SHORT);
-      else
-        fwrite32be(f,HUNK_DREL32);
+      if (!small_offsets) {
+        /* cannot represent those relocs, so put them back */
+        for (i=0; i<gv->nsecs; i++) {
+          while (rel = (struct Reloc *)remhead(rlist[i]))
+            addtail(&sec->relocs,&rel->n);
+        }
+        goto free_rlists;
+      }
+      if (!gv->dest_object && relhunk==HUNK_ABSRELOC32)
+        relhunk = HUNK_DREL32;
+      fwrite32be(f,relhunk);  /* reloc hunk id */
+
       for (i=0; i<gv->nsecs; i++) {
         if (rcnt[i]) {
           fwrite16be(f,(uint16_t)rcnt[i]);  /* number of relocations */
@@ -1659,7 +1672,7 @@ static void reloc_hunk(struct GlobalVars *gv,FILE *f,
           cnt += 2;
 
           /* store relocation offsets */
-          while(rel = (struct Reloc *)remhead(rlist[i])) {
+          while (rel = (struct Reloc *)remhead(rlist[i])) {
             fwrite16be(f,(uint16_t)rel->offset);
             cnt++;
           }
@@ -1697,6 +1710,7 @@ static void reloc_hunk(struct GlobalVars *gv,FILE *f,
     }
   }
 
+  free_rlists:
   /* free dynamically allocated rlists and rcnt array */
   for (i=0; i<gv->nsecs; free(rlist[i++]));
   free(rcnt);
@@ -1728,8 +1742,6 @@ static void writeobject(struct GlobalVars *gv,FILE *f,bool ehf)
 
   /* section loop */
   while (nextls = (struct LinkedSection *)ls->n.next) {
-    uint32_t memflags = (ls->flags&(SF_FAST|SF_CHIP))<<24;
-
     exthunk = symhunk = FALSE;
     fwrite32be(f,HUNK_NAME);
     hunk_name_len(f,ls->name);  /* section name */
@@ -1737,15 +1749,15 @@ static void writeobject(struct GlobalVars *gv,FILE *f,bool ehf)
     switch (ls->type) {  /* section type */
       case ST_CODE:
         if ((ls->flags & SF_EHFPPC) && ehf)
-          fwrite32be(f,HUNK_PPC_CODE|memflags);
+          hunk_memdata(f,ls->memattr,HUNK_PPC_CODE);
         else
-          fwrite32be(f,HUNK_CODE|memflags);
+          hunk_memdata(f,ls->memattr,HUNK_CODE);
         break;
       case ST_DATA:
-        fwrite32be(f,HUNK_DATA|memflags);
+        hunk_memdata(f,ls->memattr,HUNK_DATA);
         break;
       case ST_UDATA:
-        fwrite32be(f,HUNK_BSS|memflags);
+        hunk_memdata(f,ls->memattr,HUNK_BSS);
         break;
       default:
         ierror("writeobject(): Illegal section type %u",ls->type);
@@ -1838,7 +1850,7 @@ static void writeexec(struct GlobalVars *gv,FILE *f)
 
   /* write section size specifiers */
   while (nextls = (struct LinkedSection *)ls->n.next) {
-    fwrite32be(f,((ls->flags&(SF_FAST|SF_CHIP))<<24) | ((ls->size+3)>>2));
+    hunk_memdata(f,ls->memattr,(ls->size+3)>>2);
     ls = nextls;
     i++;
   }
@@ -1878,6 +1890,7 @@ static void writeexec(struct GlobalVars *gv,FILE *f)
 
     /* relocation hunks */
     reloc_hunk(gv,f,ls,HUNK_ABSRELOC32,R_ABS,32);
+    reloc_hunk(gv,f,ls,HUNK_RELRELOC32,R_PC,32);
     unsupp_relocs(ls);  /* print unsupported relocations */
 
     /* symbol table */

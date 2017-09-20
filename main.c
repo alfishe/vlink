@@ -1,11 +1,11 @@
-/* $VER: vlink main.c V0.15 (23.12.14)
+/* $VER: vlink main.c V0.15a (09.12.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2014  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -40,12 +40,38 @@ static char *get_option_arg(int argc,char *argv[],int *i)
 }
 
 
-static char *get_arg(int argc, char *argv[],int *i)
+static char *get_arg(int argc,char *argv[],int *i)
 {
   if ((*i+1)<argc && *argv[*i+1]!='-')
     return argv[++*i];
   error(34,argv[*i]);  /* option requires argument */
   return NULL;  /* not reached */
+}
+
+
+static lword get_assign_arg(int argc,char *argv[],int *i,
+                            char *name,size_t len)
+{
+  char *p = get_arg(argc,argv,i);
+  char *n = name;
+  lword val;
+
+  while (--len && *p!='\0' && *p!='=')
+    *n++ = *p++;
+  *n = '\0';
+  if (n == name) {
+    error(34,argv[*i]);  /* option requires argument */
+    return 0;  /* not reached */
+  }
+  if (*p++ != '=') {
+    error(130,argv[*i-1]);  /* bad assignment */
+    return 0;  /* not reached */
+  }
+  if (sscanf(p,"%lli",&val) != 1) {
+    error(130,argv[*i-1]);  /* bad assignment */
+    return 0;  /* not reached */
+  }
+  return val;
 }
 
 
@@ -253,9 +279,25 @@ int main(int argc,char *argv[])
           }
           break;
 
-        case 'h':  /* help text */
-          show_usage();
-          exit(EXIT_SUCCESS);
+        case 'h':
+          if (!strcmp(&argv[i][2],"unkattr")) {
+            struct SecAttrOvr *sao;
+            char secname[64];
+            lword val;
+
+            val = get_assign_arg(argc,argv,&i,secname,64);
+            sao = addsecattrovr(gv,secname,SAO_MEMFLAGS);
+            sao->memflags = (uint32_t)val;
+          }
+          else {
+            if (argv[i][2] == '\0') {
+              show_usage();      /* help text */
+              exit(EXIT_SUCCESS);
+            }
+            else
+              error(2,argv[i]);  /* unrecognized option */
+          }
+          break;
 
         case 'i':
           if (!strcmp(&argv[i][2],"nterp"))
@@ -284,6 +326,8 @@ int main(int argc,char *argv[])
             sscanf(get_arg(argc,argv,&i),"%li",&a);
             gv->min_alignment = (uint8_t)a;
           }
+          else if (!strcmp(&argv[i][2],"rel"))
+            gv->auto_merge = TRUE;
           else if (!strcmp(&argv[i][2],"ultibase"))
             gv->multibase = TRUE;
           else

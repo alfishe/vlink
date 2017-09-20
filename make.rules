@@ -5,6 +5,7 @@ vlinkobjects = $(DIR)/main.o $(DIR)/support.o $(DIR)/errors.o \
                $(DIR)/t_elf32.o $(DIR)/t_elf64.o $(DIR)/t_elf64x86.o \
                $(DIR)/t_elf32ppcbe.o $(DIR)/t_elf32m68k.o \
                $(DIR)/t_elf32i386.o $(DIR)/t_elf32arm.o \
+               $(DIR)/t_elf32jag.o \
                $(DIR)/t_aout.o $(DIR)/t_aoutnull.o $(DIR)/t_aoutm68k.o \
                $(DIR)/t_aouti386.o $(DIR)/t_aoutmint.o $(DIR)/t_ataritos.o \
                $(DIR)/t_rawbin.o $(DIR)/t_rawseg.o $(DIR)/t_vobj.o
@@ -64,6 +65,9 @@ $(DIR)/t_elf32ppcbe.o: t_elf32ppcbe.c vlink.h config.h ar.h elf32.h elfcommon.h
 
 $(DIR)/t_elf32m68k.o: t_elf32m68k.c vlink.h config.h ar.h elf32.h elfcommon.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32m68k.c
+
+$(DIR)/t_elf32jag.o: t_elf32jag.c vlink.h config.h ar.h elf32.h elfcommon.h
+	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32jag.c
 
 $(DIR)/t_elf32i386.o: t_elf32i386.c vlink.h config.h ar.h elf32.h elfcommon.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32i386.c

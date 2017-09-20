@@ -1,11 +1,11 @@
-/* $VER: vlink t_aout.c V0.14d (14.04.14)
+/* $VER: vlink t_aout.c V0.15a (27.02.16)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2014  Frank Wille
+ * Copyright (c) 1997-2016  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2016 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -1120,7 +1120,10 @@ uint32_t aout_addrelocs(struct GlobalVars *gv,struct LinkedSection **ls,
         continue;  /* internal relocations will never be exported */
 
       /* fix addend for a.out */
-      a = (lword)ls[rsec]->base + rel->addend;
+      if (rel->rtype == R_PC)
+        a = rel->addend - ((lword)ls[sec]->base + rel->offset);
+      else
+        a = (lword)ls[rsec]->base + rel->addend;
       /* @@@ calculation for other relocs: baserel,jmptab,load-relative? */
 
       if (rel->rtype == R_AOUT_MOVEI)

@@ -1,11 +1,11 @@
-/* $VER: vlink t_ataritos.c V0.14e (25.08.14)
+/* $VER: vlink t_ataritos.c V0.15a (16.05.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2014  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -271,9 +271,10 @@ void tos_writerelocs(struct GlobalVars *gv,FILE *f,
            rel->n.next!=NULL; rel=(struct Reloc *)rel->n.next) {
         if (ri = rel->insert) {
           if (rel->rtype!=R_ABS || ri->bpos!=0 || ri->bsiz!=32) {
-            error(32,fff_ataritos.tname,reloc_name[rel->rtype],
-                  (int)ri->bpos,(int)ri->bsiz,ri->mask,
-                  sections[i]->name,rel->offset);
+            if (rel->rtype==R_ABS && (ri->bpos!=0 || ri->bsiz!=32))
+              error(32,fff_ataritos.tname,reloc_name[rel->rtype],
+                    (int)ri->bpos,(int)ri->bsiz,ri->mask,
+                    sections[i]->name,rel->offset);
             continue;
           }
         }

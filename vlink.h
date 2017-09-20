@@ -1,11 +1,11 @@
-/* $VER: vlink vlink.h V0.15 (23.12.14)
+/* $VER: vlink vlink.h V0.15a (09.12.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2014  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -193,6 +193,7 @@ struct Section {
   uint8_t flags;
   uint8_t protection;           /* readable, writable, executable, ... */
   uint8_t alignment;            /* number of bits, which have to be zero */
+  uint32_t memattr;             /* target-specific memory attributes */
   unsigned long va;             /* the section's virtual address */
   unsigned long offset;         /* offset relative to 1st sec. of same type */
   uint8_t *data;                /* the section's contents */
@@ -221,8 +222,6 @@ struct Section {
 #define SF_PORTABLE_MASK   0x1f /* mask for target-independant flags */
 /* target specific section flags: amiga */
 #define SF_EHFPPC          0x20  /* target ehf: section contains PPC code */
-#define SF_CHIP            0x40  /* target amigaos: Chip-RAM section */
-#define SF_FAST            0x80  /* target amigaos: Fast-RAM section */
 
 /* protection */
 #define SP_READ 1
@@ -377,6 +376,17 @@ struct MemoryDescr {
 #define MEM_DEFLEN (0x7fffffffffffffffLL)
 
 
+/* overwrite attributes of an input section */
+struct SecAttrOvr {
+  struct SecAttrOvr *next;
+  uint32_t flags;
+  uint32_t memflags;
+  char name[1];
+};
+
+#define SAO_MEMFLAGS 0x00000001 /* overwrite input section's memory flags */
+
+
 struct LinkedSection {          /* linked sections of same type and name */
   struct node n;
   int index;                    /* section index 0..gv->nsecs */
@@ -385,6 +395,7 @@ struct LinkedSection {          /* linked sections of same type and name */
   uint8_t flags;
   uint8_t protection;           /* readable, writable, executable, ... */
   uint8_t alignment;            /* number of bits, which have to be zero */
+  uint32_t memattr;             /* target-specific memory attributes */
   uint16_t ld_flags;            /* linker-flags for this section */
   uint16_t reserved;
   struct MemoryDescr *destmem;  /* destination memory block (ld-scripts) */
@@ -469,11 +480,14 @@ struct GlobalVars {
   bool textbasedsyms;           /* symbol offsets based on text section */
   bool output_sections;         /* output each section as a new file */
   uint8_t min_alignment;        /* minimal section alignment (default 0) */
+  bool auto_merge;              /* merge sections with pc-rel. references */
+  uint8_t opt_reserved[3];
   FILE *map_file;               /* map file */
   FILE *trace_file;             /* linker trace output */
   struct SymNames **trace_syms; /* trace-symbol hash table */
   struct SymNames *prot_syms;   /* list of protected symbols */
   struct SymNames *undef_syms;  /* list of undefined symbols */
+  struct SecAttrOvr *secattrovrs; /* input section attribute overwrites */
   const char *scriptname;
   const char *ldscript;         /* linker-script to be used for output file */
   const char *entry_name;       /* entry point symbol or addr (-e option) */
@@ -568,7 +582,7 @@ struct FFFuncs {                /* file format specific functions and data */
   void                          /* read file and convert into internal fmt. */
     (*readconv)(struct GlobalVars *,struct LinkFile *);
   uint8_t                       /* compare target-specific section flags */
-    (*cmpsecflags)(uint8_t,uint8_t);
+    (*cmpsecflags)(struct LinkedSection *,struct Section *);
   int                           /* chk. if target requires linking of sect.*/
     (*targetlink)(struct GlobalVars *,struct LinkedSection *,struct Section *);
   struct Symbol *               /* optional target-specific find-symbol */
@@ -832,7 +846,8 @@ extern struct Section *scommon_section(struct GlobalVars *,struct ObjectUnit *);
 extern struct Section *abs_section(struct ObjectUnit *);
 extern struct Section *dummy_section(struct GlobalVars *,struct ObjectUnit *);
 extern struct LinkedSection *create_lnksect(struct GlobalVars *,const char *,
-                                            uint8_t,uint8_t,uint8_t,uint8_t);
+                                            uint8_t,uint8_t,uint8_t,uint8_t,
+                                            uint32_t);
 extern struct Section *find_sect_type(struct ObjectUnit *,uint8_t,uint8_t);
 extern struct Section *find_sect_id(struct ObjectUnit *,uint32_t);
 extern struct Section *find_sect_name(struct ObjectUnit *,const char *);
@@ -854,6 +869,9 @@ extern bool discard_symbol(struct GlobalVars *,struct Symbol *);
 extern lword entry_address(struct GlobalVars *gv);
 extern struct Symbol *bss_entry(struct ObjectUnit *,const char *,
                                 struct Symbol *);
+extern struct SecAttrOvr *addsecattrovr(struct GlobalVars *,char *,uint32_t);
+extern struct SecAttrOvr *getsecattrovr(struct GlobalVars *,const char *,
+                                        uint32_t);
 #endif
 
 /* dir.c */
@@ -931,6 +949,13 @@ extern struct FFFuncs fff_elf32amigaos;
 #ifndef T_ELF32M68K_C
 #ifdef ELF32_M68K
 extern struct FFFuncs fff_elf32m68k;
+#endif
+#endif
+
+/* t_elf32jag.c */
+#ifndef T_ELF32JAG_C
+#ifdef ELF32_JAG
+extern struct FFFuncs fff_elf32jag;
 #endif
 #endif
 

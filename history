@@ -14,6 +14,22 @@ vlink history
 (tos):        changes for the Atari TOS format
 
 
+- 0.15a (12.03.16)
+o New option -mrel instructs the linker to merge all sections with
+  PC-relative references between them. This was done automatically
+  in previous versions, but makes no sense for most targets.
+o New option -hunkattr, which assigns memory attributes to an input section
+  name. The memory attributes of all those input sections will be
+  overwritten.
+o (elf) Introduced the new target "elf32jag", an unofficial ELF target
+  for the Atari Jaguar RISC CPU.
+o (ados/ehf) Read/write extended memory attributes (0xc0000000 in hunk
+  type or size). Extended attributes in object files seem inofficial,
+  but supported by vasm now.
+o (ados/ehf) Allow memory flags with HUNK_PPC_CODE in object files.
+o (ados/ehf) Support HUNK_RELRELOC32 in executables (since OS3.0).
+o (a.out) Fixed pc-relative relocations in relocatable object file output.
+
 - 0.15 (28.12.14)
 o (ados/ehf) Support for SAS/C style indexed libraries (HUNK_LIB).
 o (ados/ehf) -Csasc is accepted to build a table with SAS/C constructors

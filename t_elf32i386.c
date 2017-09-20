@@ -1,11 +1,11 @@
-/* $VER: vlink t_elf32i386.c V0.13 (02.11.10)
+/* $VER: vlink t_elf32i386.c V0.15a (28.02.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -231,7 +231,7 @@ static int aros_targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
 /* returns -1, if target doesn't want to combine them, */
 /* returns 0, if target doesn't care - standard linking rules are used. */
 {
-  if (!gv->dest_object && !gv->use_ldscript) {
+  if (!gv->use_ldscript) {
     if ((!strncmp(ls->name,sdata_name,6) && !strncmp(s->name,sbss_name,5)
          && *(ls->name+6) == *(s->name+5)) ||
         (!strncmp(ls->name,sbss_name,5) && !strncmp(s->name,sdata_name,6)

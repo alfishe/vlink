@@ -1320,7 +1320,7 @@ static void predefine_sections(struct GlobalVars *gv)
 
         if (fl = startofsecdef(&s_addr,s_type,&s_lma)) {
           dummy_sec = NULL;
-          ls = create_lnksect(gv,s_name,ST_UNDEFINED,0,0,0);
+          ls = create_lnksect(gv,s_name,ST_UNDEFINED,0,0,0,0);
           if (!strcmp(s_type,"NOLOAD"))
             ls->ld_flags |= LSF_NOLOAD;
           if (fl & 4)

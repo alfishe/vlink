@@ -1,11 +1,11 @@
-/* $VER: vlink linker.c V0.14b (19.07.13)
+/* $VER: vlink linker.c V0.15a (27.02.16)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2013  Frank Wille
+ * Copyright (c) 1997-2016  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2013 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2016 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -324,10 +324,11 @@ static char *protstring(uint8_t prot)
 
 
 static uint8_t cmpsecflags(struct GlobalVars *gv,struct LinkedSection *ls,
-                           uint8_t new)
+                           struct Section *sec)
 /* return 0xff if sections are incompatible, otherwise return new flags */
 {
   uint8_t old = ls->flags;
+  uint8_t new = sec->flags;
 
   if (ls->ld_flags & LSF_NOLOAD)
     new &= ~SF_ALLOC;
@@ -335,7 +336,7 @@ static uint8_t cmpsecflags(struct GlobalVars *gv,struct LinkedSection *ls,
     return 0xff;
 
   return (fff[gv->dest_format]->cmpsecflags != NULL) ?
-         fff[gv->dest_format]->cmpsecflags(old,new) : (old | new);
+         fff[gv->dest_format]->cmpsecflags(ls,sec) : (old | new);
 }
 
 
@@ -345,6 +346,7 @@ static void merge_sec_attrs(struct LinkedSection *lsn,struct Section *sec,
   if (lsn->type == ST_UNDEFINED) {
     lsn->type = sec->type;
     lsn->flags = sec->flags;
+    lsn->memattr = sec->memattr;
   }
   else {
     if (lsn->type==ST_UDATA && sec->type==ST_DATA)
@@ -367,6 +369,14 @@ static void merge_sec_attrs(struct LinkedSection *lsn,struct Section *sec,
     lsn->protection |= sec->protection;
   }
 
+  /* merge memory attributes */
+  if (lsn->memattr != sec->memattr) {
+    Dprintf("Memory attributes of section %s merged from %08lx to %08lx"
+            " in %s.\n",lsn->name,lsn->memattr,lsn->memattr|sec->memattr,
+            getobjname(sec->obj));
+    lsn->memattr |= sec->memattr;
+  }
+
   if (sec->alignment > lsn->alignment) {
     /* increase alignment to fit the needs of the new section */
     if (lsn->alignment && !listempty(&lsn->sections)) {
@@ -384,8 +394,8 @@ static void merge_sec_attrs(struct LinkedSection *lsn,struct Section *sec,
 static struct LinkedSection *get_matching_lnksec(struct GlobalVars *gv,
                                                  struct Section *sec,
                                                  struct LinkedSection *myls)
-/* find a LinkedSection node which fits the specified section,
-   but which is different from 'myls' */
+/* find a LinkedSection node which matches the attributes of the
+   specified section, but which is different from 'myls' */
 {
   struct LinkedSection *lsn = (struct LinkedSection *)gv->lnksec.first;
   struct LinkedSection *nextlsn;
@@ -393,7 +403,7 @@ static struct LinkedSection *get_matching_lnksec(struct GlobalVars *gv,
   int tl;
 
   while (nextlsn = (struct LinkedSection *)lsn->n.next) {
-    if (lsn != myls && ((f = cmpsecflags(gv,lsn,sec->flags)) != 0xff)) {
+    if (lsn != myls && ((f = cmpsecflags(gv,lsn,sec)) != 0xff)) {
       f &= ~SF_PORTABLE_MASK;
 
       if (!gv->dest_object) {
@@ -435,7 +445,7 @@ static struct LinkedSection *get_matching_lnksec(struct GlobalVars *gv,
             }
           }
 
-          if (checkrelrefs(lsn,sec)) {
+          if (gv->auto_merge && checkrelrefs(lsn,sec)) {
             /* we must link them together, because there are rel. refs */
             if ((lsn->type==ST_CODE || sec->type==ST_CODE) &&
                 lsn->type != sec->type)
@@ -460,7 +470,7 @@ static struct LinkedSection *get_matching_lnksec(struct GlobalVars *gv,
         if (myls == NULL) {
           if (!strcmp(sec->name,lsn->name) || /* same name or no name */
               *(sec->name)==0) {
-            if (lsn->type==sec->type) {   /* same type */
+            if (lsn->type == sec->type) {   /* same type */
               Dprintf("name: %s(%s) -> %s\n",getobjname(sec->obj),
                       sec->name,lsn->name);
               merge_sec_attrs(lsn,sec,f);
@@ -1255,7 +1265,7 @@ void linker_join(struct GlobalVars *gv)
                    so try to merge and check alignments */
                 uint8_t f;
 
-                if ((f = cmpsecflags(gv,ls,sec->flags)) == 0xff) {
+                if ((f = cmpsecflags(gv,ls,sec)) == 0xff) {
                   /* no warning, because the linker-script should know... */
                   f = ls->flags ? ls->flags : sec->flags;
                 }
@@ -1435,7 +1445,7 @@ void linker_join(struct GlobalVars *gv)
             Dprintf("new: %s(%s) -> %s\n",getobjname(sec->obj),
                     sec->name,sec->name);
             ls = create_lnksect(gv,sec->name,sec->type,sec->flags,
-                                sec->protection,sec->alignment);
+                                sec->protection,sec->alignment,sec->memattr);
             create_allowed = FALSE;
           }
           if (ls)
@@ -1699,7 +1709,6 @@ void linker_relocate(struct GlobalVars *gv)
 /* if required. */
 {
   const char *fn = "linker_relocate(): ";
-  bool relocfmt = (fff[gv->dest_format]->flags&FFF_RELOCATABLE) != 0;
   struct Symbol *sdabase,*sda2base,*gotbase,*pltbase,*r13init;
   struct LinkedSection *ls;
   struct Section *sec;
@@ -1745,20 +1754,12 @@ void linker_relocate(struct GlobalVars *gv)
 
             case R_PC:          /* Normal, PC-relative reference */
             case R_LOCALPC:
-              /* Relative reloc offset must be from the same section */
-              if (!relocfmt || rel->relocsect.lnk==ls) {
-                if (!gv->keep_relocs || rel->relocsect.lnk==ls) {
-                  a = ((lword)rel->relocsect.lnk->base + rel->addend) -
-                      ((lword)ls->base + rel->offset);
-                  a = writesection(gv,ls->data+rel->offset,rel,a);
-                  keep = FALSE;
-                }
-              }
-              else {  /* Illegal relative reference to different section */
-                print_function_name(sec,rel->offset);
-                error(24,getobjname(sec->obj),sec->name,
-                      rel->offset - sec->offset,
-                      rel->relocsect.lnk->name,rel->addend);
+              /* resolve relative relocs from the same section */
+              if (rel->relocsect.lnk == ls) {
+                a = ((lword)rel->relocsect.lnk->base + rel->addend) -
+                    ((lword)ls->base + rel->offset);
+                a = writesection(gv,ls->data+rel->offset,rel,a);
+                keep = FALSE;
               }
               break;
 
@@ -1770,7 +1771,7 @@ void linker_relocate(struct GlobalVars *gv)
               }
               break;
 
-            case R_GOT:         /* */
+            case R_GOT:         /* GOT offset */
             case R_GOTOFF:
               if (!gv->dest_object) {
                 if (gotbase) {
@@ -1967,22 +1968,13 @@ void linker_relocate(struct GlobalVars *gv)
 
                   case R_PC:
                     /* PC relative reference to relocatable symbol */
-                    if (relocfmt && xdef->relsect->lnksec != ls) {
-                      /* Illegal relative reference to symbol */
-                      print_function_name(sec,xref->offset);
-                      error(27,getobjname(sec->obj),sec->name,
-                            xref->offset-sec->offset,xdef->name);
+                    if (xdef->relsect->lnksec != ls) {
+                      make_reloc = TRUE;
                     }
                     else {
-                      if (xdef->relsect->lnksec!=ls &&
-                          (gv->dest_object || gv->keep_relocs)) {
-                        make_reloc = TRUE;
-                      }
-                      else {
-                        a = (xdef->value + xref->addend) -
-                            ((lword)sec->lnksec->base + (lword)xref->offset);
-                        err_no = 28;
-                      }
+                      a = (xdef->value + xref->addend) -
+                          ((lword)sec->lnksec->base + (lword)xref->offset);
+                      err_no = 28;
                     }
                     break;
 

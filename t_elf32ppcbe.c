@@ -1,11 +1,11 @@
-/* $VER: vlink t_elf32ppcbe.c V0.13 (22.11.10)
+/* $VER: vlink t_elf32ppcbe.c V0.15a (28.02.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
+ * Copyright (c) 1997-2015  Frank Wille
  *
  * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
+ * compiler vbcc, copyright (c) 1995-2015 by Volker Barthelmann.
  * vlink may be freely redistributed as long as no modifications are
  * made and nothing is charged for it. Non-commercial usage is allowed
  * without any restrictions.
@@ -433,7 +433,7 @@ static struct Section *ddrelocs_sec(struct GlobalVars *gv,
   s->id = ~0;
 
   ls = create_lnksect(gv,s->name,s->type,s->flags,s->protection,
-                      s->alignment);
+                      s->alignment,0);
   addtail(&ls->sections,&s->n);
   s->lnksec = ls;
   s->size = ls->size = 1; /* protect from deletion */
@@ -448,7 +448,7 @@ static int amiga_targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
 /* returns -1, if target doesn't want to combine them, */
 /* returns 0, if target doesn't care - standard linking rules are used. */
 {
-  if (!gv->dest_object && !gv->use_ldscript) {
+  if (!gv->use_ldscript) {
     if ((!strncmp(ls->name,sdata_name,6) && !strncmp(s->name,sbss_name,5)
          && *(ls->name+6) == *(s->name+5)) ||
         (!strncmp(ls->name,sbss_name,5) && !strncmp(s->name,sdata_name,6)
@@ -945,7 +945,7 @@ static void morphos_writeexec(struct GlobalVars *gv,FILE *f)
 
           sbss = create_lnksect(gv,sbss_name,ST_UDATA,
                                 ls->flags|SF_UNINITIALIZED,
-                                ls->protection,ls->alignment);
+                                ls->protection,ls->alignment,ls->memattr);
           sbss->size = ls->size - bss_sec->offset;
           sbss->data = alloc(sbss->size);
 
