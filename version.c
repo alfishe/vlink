@@ -1,13 +1,13 @@
-/* $VER: vlink version.c V0.16a (08.07.17)
+/* $VER: vlink version.c V0.16b (28.12.18)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2017  Frank Wille
+ * Copyright (c) 1997-2018  Frank Wille
  */
 
 
 /* version/revision */
-#define VERSION "0.16a"
+#define VERSION "0.16b"
 
 #define VERSION_C
 #include "vlink.h"
@@ -21,7 +21,7 @@ static const char *_ver = "$VER: " PNAME " " VERSION " " __AMIGADATE__ "\r\n";
 
 void show_version(void)
 {
-  printf(PNAME " V" VERSION " (c)1997-2017 by Frank Wille\n"
+  printf(PNAME " V" VERSION " (c)1997-2018 by Frank Wille\n"
          "build date: " __DATE__ ", " __TIME__ "\n\n");
 }
 
@@ -40,7 +40,7 @@ void show_usage(void)
          "[-gc-all] [-gc-empty] "
          "[-hunkattr secname=value] [-interp path] "
          "[-L library-search-path] [-l library-specifier] [-minalign value] "
-         "[-mrel] [-multibase] [-nostdlib] "
+         "[-mrel] [-mtype] [-multibase] [-nostdlib] "
          "[-o filename] [-osec] [-P symbol] "
          "[-rpath path] [-sc] [-sd] [-shared] [-soname name] [-static] "
          "[-T filename] [-Ttext addr] [-textbaserel] "
@@ -94,6 +94,7 @@ void show_usage(void)
          "-sc               merge all code sections\n"
          "-sd               merge all data and bss sections\n"
          "-mrel             merge sections with pc-relative references\n"
+         "-mtype            merge all sections with the same type\n"
          "-M                print segment mappings and symbol values\n"
          "-k                keep original section order\n"
          "-n                no page alignment\n"
