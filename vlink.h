@@ -470,7 +470,6 @@ struct GlobalVars {
   bool output_sections;         /* output each section as a new file */
   uint8_t min_alignment;        /* minimal section alignment (default 0) */
   FILE *map_file;               /* map file */
-  FILE *map_file_newstyle;      /* map file, new style */
   FILE *trace_file;             /* linker trace output */
   struct SymNames **trace_syms; /* trace-symbol hash table */
   struct SymNames *prot_syms;   /* list of protected symbols */

@@ -136,7 +136,6 @@ int main(int argc,char *argv[])
   bool stdlib = TRUE;
   int so_version = 0;   /* minum version for shared objects */
   uint16_t flags = 0;   /* input file flags */
-  int enable_newstyle_mapfile = 0;
 
   /* initialize and set default values */
   memset(gv,0,sizeof(struct GlobalVars));
@@ -520,10 +519,6 @@ int main(int argc,char *argv[])
           gv->map_file = stdout;
           break;
 
-        case 'N':  /* machine-readable map output */
-          enable_newstyle_mapfile = 1;
-          break;
-
         case 'P':  /* protect symbol against stripping */
           if (buf = get_option_arg(argc,argv,&i))
             add_symnames(&gv->prot_syms,buf);
@@ -601,15 +596,6 @@ int main(int argc,char *argv[])
           sizeof(char **), flavours_cmp);
   }
 
-  /* if map file is enabled, write to <output>.map */
-  if (enable_newstyle_mapfile) {
-    char map_path[260];
-    snprintf(map_path, sizeof map_path, "%s.map", gv->dest_name);
-    map_path[sizeof(map_path)-1] = '\0';
-    if (NULL == (gv->map_file_newstyle = fopen(map_path, "w")))
-      fprintf(stderr, "warning: couldn't create '%s'\n", map_path);
-  }
-
   /* link them... */
   linker_init(gv);
   linker_load(gv);     /* load all objects and libraries and their symbols */
@@ -622,11 +608,6 @@ int main(int argc,char *argv[])
   linker_relocate(gv); /* relocate addresses in joined sections */
   linker_write(gv);    /* write output file in selected target format */
   linker_cleanup(gv);
-
-  if (gv->map_file_newstyle) {
-    fclose(gv->map_file_newstyle);
-    gv->map_file_newstyle = NULL;
-  }
 
   cleanup(gv);
   return 0;
