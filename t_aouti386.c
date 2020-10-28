@@ -3,14 +3,6 @@
  * This file is part of vlink, a portable linker for multiple
  * object formats.
  * Copyright (c) 1997-2010  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
  */
 
 #include "config.h"
@@ -67,6 +59,7 @@ struct FFFuncs fff_aoutbsdi386 = {
   "aoutbsdi386",
   zmagic_exe,
   NULL,
+  NULL,
   aout_headersize,
   aoutbsdi386_identify,
   aoutstd_readconv,
@@ -86,7 +79,7 @@ struct FFFuncs fff_aoutbsdi386 = {
   MID_I386,
   RTAB_STANDARD,RTAB_STANDARD,
   _LITTLE_ENDIAN_,
-  32,
+  32,0,
   FFF_BASEINCR
 };
 #endif
@@ -97,6 +90,7 @@ static int aoutpc386_identify(char *,uint8_t *,unsigned long,bool);
 struct FFFuncs fff_aoutpc386 = {
   "aoutpc386",
   zmagic_exe,
+  NULL,
   NULL,
   aout_headersize,
   aoutpc386_identify,
@@ -117,7 +111,7 @@ struct FFFuncs fff_aoutpc386 = {
   MID_PC386,
   RTAB_STANDARD,RTAB_STANDARD,
   _LITTLE_ENDIAN_,
-  32,
+  32,0,
   FFF_BASEINCR
 };
 #endif

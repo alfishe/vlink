@@ -5,12 +5,14 @@ vlinkobjects = $(DIR)/main.o $(DIR)/support.o $(DIR)/errors.o \
                $(DIR)/t_elf32.o $(DIR)/t_elf64.o $(DIR)/t_elf64x86.o \
                $(DIR)/t_elf32ppcbe.o $(DIR)/t_elf32m68k.o \
                $(DIR)/t_elf32i386.o $(DIR)/t_elf32arm.o \
+               $(DIR)/t_elf32jag.o \
                $(DIR)/t_aout.o $(DIR)/t_aoutnull.o $(DIR)/t_aoutm68k.o \
-               $(DIR)/t_aouti386.o $(DIR)/t_aoutmint.o $(DIR)/t_ataritos.o \
+               $(DIR)/t_aouti386.o $(DIR)/t_aoutmint.o \
+               $(DIR)/t_ataritos.o $(DIR)/t_xfile.o $(DIR)/t_os9.o \
                $(DIR)/t_rawbin.o $(DIR)/t_rawseg.o $(DIR)/t_vobj.o
 all: $(TARGET)
 
-$(TARGET): $(vlinkobjects)
+$(TARGET): $(DIR) $(vlinkobjects)
 	$(CC) $(CCOUT)$(DIR)/version.o $(COPTS) $(CONFIG) version.c
 	$(LD) $(LDOUT)$(TARGET) $(LDOPTS) $(vlinkobjects) $(DIR)/version.o $(LIBS)
 
@@ -24,6 +26,9 @@ vlink.pdf: vlink.texi
 
 vlink.html: vlink.texi
 	texi2html -split=chapter -nosec_nav -frames vlink.texi
+
+$(DIR):
+	$(MD) $(DIR)
 
 $(DIR)/main.o: main.c vlink.h config.h ar.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) main.c
@@ -70,6 +75,9 @@ $(DIR)/t_elf32ppcbe.o: t_elf32ppcbe.c vlink.h config.h ar.h elf32.h elfcommon.h
 $(DIR)/t_elf32m68k.o: t_elf32m68k.c vlink.h config.h ar.h elf32.h elfcommon.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32m68k.c
 
+$(DIR)/t_elf32jag.o: t_elf32jag.c vlink.h config.h ar.h elf32.h elfcommon.h
+	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32jag.c
+
 $(DIR)/t_elf32i386.o: t_elf32i386.c vlink.h config.h ar.h elf32.h elfcommon.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_elf32i386.c
 
@@ -99,6 +107,12 @@ $(DIR)/t_aoutmint.o: t_aoutmint.c vlink.h config.h ar.h aout.h tosdefs.h aoutmin
 
 $(DIR)/t_ataritos.o: t_ataritos.c vlink.h config.h ar.h tosdefs.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_ataritos.c
+
+$(DIR)/t_xfile.o: t_xfile.c vlink.h config.h xfile.h
+	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_xfile.c
+
+$(DIR)/t_os9.o: t_os9.c vlink.h config.h os9mod.h
+	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_os9.c
 
 $(DIR)/t_rawbin.o: t_rawbin.c vlink.h config.h
 	$(CC) $(CCOUT)$@ $(COPTS) $(CONFIG) t_rawbin.c

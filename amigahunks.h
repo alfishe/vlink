@@ -1,16 +1,8 @@
-/* $VER: vlink amigahunks.h V0.9f (20.11.04)
+/* $VER: vlink amigahunks.h V0.15a (09.12.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2005  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2005 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2015  Frank Wille
  */
 
 
@@ -51,6 +43,7 @@
 #define HUNKF_ADVISORY    (1L<<29)
 #define HUNKF_CHIP        (1L<<30)
 #define HUNKF_FAST        (1L<<31)
+#define HUNKF_MEMTYPE     (HUNKF_CHIP|HUNKF_FAST)
 
 /* hunk_ext sub-types */
 #define EXT_SYMB          0
@@ -80,3 +73,42 @@
 
 /* EHF extensions */
 #define EXT_RELREF26      229
+
+/* memory attributes */
+#define MEMF_PUBLIC       1
+#define MEMF_CHIP         2
+#define MEMF_FAST         4
+
+/* target amigahunk specific structures and defines */
+#define EXT_IGNORE 0x100
+
+struct HunkInfo {
+  uint8_t *hunkbase;    /* base address of amigaos/ehf file */
+  uint8_t *hunkptr;     /* current hunk data pointer */
+  long hunkcnt;         /* remaining bytes in this file */
+  const char *filename;
+  bool exec;            /* executable file? */
+  uint8_t *libbase;     /* base address HUNK_LIB data (hunk data) */
+  uint8_t *indexbase;   /* HUNK_INDEX data base address */
+  uint8_t *indexptr;    /* current HUNK_INDEX data pointer */
+  long indexcnt;        /* remaining bytes in HUNK_INDEX */
+  long savedhunkcnt;    /* hunkcnt to restore after HUNK_LIB is parsed */
+};
+
+struct XRefNode {
+  struct node n;
+  const char *sym_name;
+  uint8_t ref_type;
+  uint32_t com_size;
+  int noffsets;
+  struct list xreflist;
+};
+
+#define SUBID_LINE 1
+struct LineDebug {
+  struct TargetExt tgext;   /* id = TGEXT_AMIGAOS, subid = SUBID_LINE */
+  const char *source_name;  /* full path to source text */
+  uint32_t num_entries;     /* number of entries in line/offset table */
+  uint32_t *lines;
+  uint32_t *offsets;
+};

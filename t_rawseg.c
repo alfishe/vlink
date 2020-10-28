@@ -1,16 +1,8 @@
-/* $VER: vlink t_rawseg.c V0.14b (17.02.13)
+/* $VER: vlink t_rawseg.c V0.16d (28.02.20)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2013  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2013 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2020  Frank Wille
  */
 
 
@@ -54,6 +46,7 @@ struct FFFuncs fff_rawseg = {
   "rawseg",
   defaultscript,
   NULL,
+  NULL,
   rawseg_headersize,
   rawseg_identify,
   rawseg_readconv,
@@ -72,8 +65,8 @@ struct FFFuncs fff_rawseg = {
   0,
   0,
   RTAB_UNDEF,0,
-  -1, /* endianess undefined, only write */
-  32
+  -1,   /* endianess undefined, only write */
+  0,0   /* addr_bits from input */
 };
 #endif
 
@@ -148,22 +141,14 @@ static void rawseg_writeexec(struct GlobalVars *gv,FILE *f)
 
       firstsec = TRUE;
       srlist = NULL;
-      snprintf(buf,256,"%s.%s",gv->dest_name,p->name);
-      segf = fopen(buf,"wb");
-      if (segf == NULL) {
-        error(29,buf);  /* cannot create file */
-        continue;
-      }
-
-      /* write file name, start address and length of segment to output */
-      fprintf(f,"\"%s\" 0x%llx 0x%llx\n",buf,p->start,p->mem_end-p->start);
+      segf = NULL;
 
       /* write segment's sections */
       for (ls=(struct LinkedSection *)gv->lnksec.first;
            ls->n.next!=NULL; ls=(struct LinkedSection *)ls->n.next) {
         if (ls->copybase>=(unsigned long)p->start &&
             (ls->copybase+ls->size)<=(unsigned long)p->mem_end &&
-            (ls->flags & SF_ALLOC)) {
+            (ls->flags & SF_ALLOC) && !(ls->ld_flags & LSF_NOLOAD)) {
 
           if (gv->keep_relocs) {
             /* remember relocations, adjusted from section to segment base */
@@ -178,8 +163,8 @@ static void rawseg_writeexec(struct GlobalVars *gv,FILE *f)
                 if (r->rtype!=R_ABS || ri->bpos!=0 || ri->bsiz!=32) {
                   /* only absolute 32-bit relocs are supported */
                   error(32,fff_rawseg.tname,reloc_name[r->rtype],
-                        (int)ri->bpos,(int)ri->bsiz,ri->mask,
-                        ls->name,r->offset);
+                        (int)ri->bpos,(int)ri->bsiz,
+                        (unsigned long long)ri->mask,ls->name,r->offset);
                   continue;
                 }
               }
@@ -193,7 +178,7 @@ static void rawseg_writeexec(struct GlobalVars *gv,FILE *f)
                   ierror("%sReloc type %d (%s) at %s+0x%lx "
                          "(addend 0x%llx) is missing a relocsect.lnk",
                          fn,(int)r->rtype,reloc_name[r->rtype],ls->name,
-                         r->offset,r->addend);
+                         r->offset,(unsigned long long)r->addend);
               }
               relsec = r->relocsect.lnk;
 
@@ -210,7 +195,7 @@ static void rawseg_writeexec(struct GlobalVars *gv,FILE *f)
               }
               /* use segment's base address for relocation instead */
               if (relph) {
-                lword segoffs,a,v;
+                lword segoffs,v;
                 struct SegReloc *newsr,*srp;
 
                 segoffs = (lword)relsec->copybase - relph->start;
@@ -220,7 +205,7 @@ static void rawseg_writeexec(struct GlobalVars *gv,FILE *f)
                   if (ri = r->insert)
                     error(35,gv->dest_name,ls->name,r->offset,v,
                           reloc_name[r->rtype],(int)ri->bpos,
-                          (int)ri->bsiz,ri->mask);
+                          (int)ri->bsiz,(unsigned long long)ri->mask);
                   else
                     ierror("%sReloc (%s+%lx), type=%s, without RelocInsert",
                            fn,ls->name,r->offset,reloc_name[r->rtype]);
@@ -248,6 +233,20 @@ static void rawseg_writeexec(struct GlobalVars *gv,FILE *f)
           else
             calc_relocs(gv,ls);
 
+          if (segf == NULL) {
+            /* create output file for segment, when not already opened */
+            snprintf(buf,256,"%s.%s",gv->dest_name,p->name);
+            segf = fopen(buf,"wb");
+            if (segf == NULL) {
+              error(29,buf);  /* cannot create file */
+              break;
+            }
+            /* write file name, start addr. and length of segment to output */
+            fprintf(f,"\"%s\" 0x%llx 0x%llx\n",
+                    buf,(unsigned long long)p->start,
+                    (unsigned long long)p->mem_end-p->start);
+          }
+
           if (!firstsec) {
             /* write an alignment gap, when needed */
             if (ls->copybase > addr)
@@ -264,7 +263,8 @@ static void rawseg_writeexec(struct GlobalVars *gv,FILE *f)
           prevls = ls;
         }
       }
-      fclose(segf);
+      if (segf != NULL)
+        fclose(segf);
 
       if (srlist) {
         /* write relocation files for this segment */

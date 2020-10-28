@@ -1,16 +1,8 @@
-/* $VER: vlink elf.c V0.14 (29.07.11)
+/* $VER: vlink elf.c V0.15e (23.03.17)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2011  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2011 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2017  Frank Wille
  */
 
 
@@ -70,7 +62,8 @@ static const size_t elf_buckets[] =
 
 /* common linker symbols */
 static const char *elf_symnames[] = {
-  sdabase_name,sda2base_name,"__CTOR_LIST__","__DTOR_LIST__",
+  sdabase_name,sda2base_name,
+  "__CTOR_LIST__","__DTOR_LIST__","__CTOR_LIST_END","__DTOR_LIST_END",
   gotbase_name+1,pltbase_name+1,dynamic_name+1
 };
 
@@ -120,12 +113,16 @@ int elf_identify(struct FFFuncs *ff,char *name,void *p,
         case ET_REL:
           return arflag ? ID_LIBARCH : ID_OBJECT;
         case ET_EXEC:
-          if (arflag) /* no executables in library archives */
+          if (arflag) { /* no executables in library archives */
             error(40,name,ff->tname);
+            return ID_UNKNOWN;
+          }
           return ID_EXECUTABLE;
         case ET_DYN:
-          if (arflag) /* no shared objects in library archives */
+          if (arflag) { /* no shared objects in library archives */
             error(39,name,ff->tname);
+            return ID_UNKNOWN;
+          }
           return ID_SHAREDOBJ;
         default:
           error(41,name,ff->tname);  /* illegal fmt. / file corrupted */
@@ -138,13 +135,14 @@ int elf_identify(struct FFFuncs *ff,char *name,void *p,
 }
 
 
-void elf_check_ar_type(struct FFFuncs *ff,const char *name,void *p,
+bool elf_check_ar_type(struct FFFuncs *ff,const char *name,void *p,
                        unsigned char class,unsigned char endian,
                        uint32_t ver,int nmach,...)
 /* check all library archive members before conversion */
 {
   struct Elf_CommonHdr *ehdr = (struct Elf_CommonHdr *)p;
   bool be = (endian == ELFDATA2MSB);
+  bool valid = TRUE;
   uint16_t m = read16(be,ehdr->e_machine);
   va_list vl;
 
@@ -174,10 +172,11 @@ void elf_check_ar_type(struct FFFuncs *ff,const char *name,void *p,
       }
     }
   }
-  error(41,name,ff->tname);
+  valid = FALSE;
 
 check_ar_exit:
   va_end(vl);
+  return valid;
 }
 
 
@@ -394,6 +393,22 @@ void elf_setlnksym(struct GlobalVars *gv,struct Symbol *xdef)
           xdef->relsect = (struct Section *)ls->sections.first;
         }
         break;
+      case CTOREND:
+        if (ls = find_lnksec(gv,ctors_name,0,0,0,0)) {
+          xdef->type = SYM_RELOC;
+          xdef->relsect = (struct Section *)ls->sections.last;
+          if (xdef->relsect->size >= 4)
+            xdef->value = xdef->relsect->size - 4;
+        }
+        break;
+      case DTOREND:
+        if (ls = find_lnksec(gv,dtors_name,0,0,0,0)) {
+          xdef->type = SYM_RELOC;
+          xdef->relsect = (struct Section *)ls->sections.last;
+          if (xdef->relsect->size >= 4)
+            xdef->value = xdef->relsect->size - 4;
+        }
+        break;
       case GLOBOFFSTAB:
         if (ls = find_lnksec(gv,got_name,0,0,0,0)) {
           xdef->type = SYM_RELOC;
@@ -428,7 +443,6 @@ struct Section *elf_dyntable(struct GlobalVars *gv,
   static const char fn[] = "elf_dyntable():";
   static const char *secname[] = { NULL, got_name, plt_name };
   struct Section *sec,**secp;
-  struct ObjectUnit *ou;
   int symidx = -1;
 
   switch (type) {
@@ -453,7 +467,7 @@ struct Section *elf_dyntable(struct GlobalVars *gv,
   /* Section does not exist - create it.
      The offset field is used for the next table entry offset. */
   sec = add_section(gv->dynobj,(char *)secname[type],NULL,initial_size,
-                    sectype,secflags,secprot,2,TRUE);
+                    sectype,secflags,secprot,gv->ptr_alignment,TRUE);
   sec->offset = initial_offset;
   *secp = sec;
 
@@ -486,8 +500,8 @@ void elf_adddynsym(struct Symbol *sym)
 }
 
 
-void elf_dynreloc(struct ObjectUnit *ou,struct Reloc *r,int relafmt,
-                  size_t elfrelsize)
+void elf_dynreloc(struct GlobalVars *gv,struct ObjectUnit *ou,
+                  struct Reloc *r,int relafmt,size_t elfrelsize)
 {
   const char *secname;
   struct Section **secp;
@@ -518,7 +532,8 @@ void elf_dynreloc(struct ObjectUnit *ou,struct Reloc *r,int relafmt,
 
   /* make sure that dynamic relocation section exists */
   if (*secp == NULL)
-    *secp = add_section(ou,secname,NULL,0,ST_DATA,SF_ALLOC,SP_READ,2,TRUE);
+    *secp = add_section(ou,secname,NULL,0,ST_DATA,SF_ALLOC,SP_READ,
+                        gv->ptr_alignment,TRUE);
 
   /* increase size for new entry */
   (*secp)->size += elfrelsize;
@@ -555,11 +570,13 @@ struct Section *elf_initdynlink(struct GlobalVars *gv)
 
   /* .hash, .dynsym, .dynstr and .dynamic are always present.
      Set them to an initial size. They will grow with dynamic symbols added. */
-  add_section(ou,hash_name,NULL,0,ST_DATA,SF_ALLOC,SP_READ,2,TRUE);
-  add_section(ou,dynsym_name,NULL,0,ST_DATA,SF_ALLOC,SP_READ,2,TRUE);
+  add_section(ou,hash_name,NULL,0,ST_DATA,SF_ALLOC,SP_READ,
+              gv->ptr_alignment,TRUE);
+  add_section(ou,dynsym_name,NULL,0,ST_DATA,SF_ALLOC,SP_READ,
+              gv->ptr_alignment,TRUE);
   add_section(ou,dynstr_name,NULL,0,ST_DATA,SF_ALLOC,SP_READ,0,TRUE);
   dynsec = add_section(ou,dyn_name,NULL,0,ST_DATA,SF_ALLOC,
-                       SP_READ|SP_WRITE,2,TRUE);
+                       SP_READ|SP_WRITE,gv->ptr_alignment,TRUE);
 
   /* assign symbol _DYNAMIC the address of the .dynamic section */
   sym = elf_makelnksym(gv,DYNAMICSYM);
@@ -607,7 +624,6 @@ struct Symbol *elf_pltgotentry(struct GlobalVars *gv,struct Section *sec,
   if (tabsym == NULL) {
     static uint8_t dyn_reloc_types[] = { R_NONE,R_GLOBDAT,R_JMPSLOT,R_COPY };
     struct Reloc *r;
-    uint8_t rtype;
 
     tabsym = findlocsymbol(gv,sec->obj,entryname);
     if (tabsym == NULL) {
@@ -630,7 +646,7 @@ struct Symbol *elf_pltgotentry(struct GlobalVars *gv,struct Section *sec,
          need an R_COPY relocation either! */
     }
     addreloc(sec,r,0,addrsize,-1);  /* size,mask only important for R_ABS */
-    elf_dynreloc(gv->dynobj,r,relaflag,relocsize);
+    elf_dynreloc(gv,gv->dynobj,r,relaflag,relocsize);
 
     /* increase offset and size counters of table-section */
     sec->offset += offsadd;
@@ -651,7 +667,7 @@ struct Symbol *elf_bssentry(struct GlobalVars *gv,const char *secname,
 
   if (gv->dynobj == NULL)
     ierror("elf_bssentry(): no dynobj");
-  newxdef = bss_entry(gv->dynobj,secname,xdef);
+  newxdef = bss_entry(gv,gv->dynobj,secname,xdef);
 
   if (newxdef) {
     /* entry in BSS was done, so we need a R_COPY relocation */
@@ -661,7 +677,7 @@ struct Symbol *elf_bssentry(struct GlobalVars *gv,const char *secname,
     r = newreloc(gv,xdef->relsect,xdef->name,NULL,0,0,R_COPY,0);
     r->relocsect.symbol = xdef;
     addreloc(xdef->relsect,r,0,addrsize,-1);  /* mask/size irrel. for R_COPY */
-    elf_dynreloc(xdef->relsect->obj,r,relaflag,relocsize);
+    elf_dynreloc(gv,xdef->relsect->obj,r,relaflag,relocsize);
   }
 
   return xdef;
@@ -1040,6 +1056,9 @@ uint32_t elf_segmentcheck(struct GlobalVars *gv,size_t ehdrsize)
   unsigned long foffs;
   uint32_t segcnt;
 
+  /* @@@ ELF executables cannot deal with trimmed sections??? */
+  untrim_sections(gv);
+
   /* find PHDR segment */
   for (phdrs=NULL,p=gv->phdrlist; p; p=p->next) {
     if ((p->flags&PHDR_USED) && p->type==PT_PHDR) {
@@ -1317,7 +1336,8 @@ size_t elf_addrela(struct GlobalVars *gv,struct LinkedSection *ls,
       else
         ierror("elf_addrela(): Reloc type %d (%s) at %s+0x%lx (addend 0x%llx)"
                " is missing a relocsect.lnk",(int)rel->rtype,
-               reloc_name[rel->rtype],ls->name,rel->offset,rel->addend);
+               reloc_name[rel->rtype],ls->name,rel->offset,
+               (unsigned long long)rel->addend);
     }
     symidx = (uint32_t)(rel->relocsect.lnk->index + secsyms);
   }
@@ -1327,7 +1347,8 @@ size_t elf_addrela(struct GlobalVars *gv,struct LinkedSection *ls,
 
     if (ri = rel->insert)
       error(32,fff[gv->dest_format]->tname,reloc_name[rel->rtype],
-            (int)ri->bpos,(int)ri->bsiz,ri->mask,ls->name,rel->offset);
+            (int)ri->bpos,(int)ri->bsiz,(unsigned long long)ri->mask,
+            ls->name,rel->offset);
     else
       ierror("elf_addrela(): Reloc without insert-field");
   }
@@ -1352,6 +1373,7 @@ void elf_initoutput(struct GlobalVars *gv,
     /* we need to provide at least one dummy PHDR, even for reloc-objects */
     struct Phdr *p = alloczero(sizeof(struct Phdr));
 
+    p->name = " dummy";
     p->type = PT_LOAD;
     p->flags = PF_X|PF_W|PF_R|PHDR_USED;
     p->mem_end = p->file_end = 0xffffffff;

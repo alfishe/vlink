@@ -1,16 +1,8 @@
-/* $VER: vlink config.h V0.14a (02.08.12)
+/* $VER: vlink config.h V0.16f (26.07.20)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2012  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2012 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2020  Frank Wille
  */
 
 #ifndef CONFIG_H
@@ -51,6 +43,8 @@
 #define ADOS                /* AmigaOS 68k hunk format */
 #define EHF                 /* WarpOS PPC extended hunk format */
 #define ATARI_TOS           /* Atari-ST TOS format */
+#define XFILE               /* Sharp X68000 Human68k XFile format */
+#define OS_9                /* OS-9 6809 reentrant modules */
 
 #define ELF32               /* general 32-bit ELF support */
 #define ELF32_PPC_BE        /* ELF PowerPC 32-Bit Big Endian */
@@ -59,6 +53,7 @@
 #define ELF32_386           /* ELF 386 32-Bit Little Endian */
 #define ELF32_AROS          /* ELF 386 relocatable for AROS */
 #define ELF32_ARM_LE        /* ELF ARM 32-Bit Little Endian */
+#define ELF32_JAG           /* ELF Jaguar RISC 32-Bit Big Endian */
 
 #define ELF64               /* general 64-bit ELF support */
 #define ELF64_X86           /* ELF x86_64 64-Bit Little Endian */
@@ -77,7 +72,12 @@
 #define RAWBIN1             /* single raw binary file */
 #define RAWBIN2             /* multiple raw binary files */
 #define AMSDOS              /* Amstrad/Schneider CPC program */
+#define APPLEBIN            /* Apple DOS 3.3 binary file */
+#define ATARICOM            /* Atari DOS COM format */
 #define CBMPRG              /* Commodore PET, VIC-20, 64, etc. program */
+#define COCOML              /* Tandy Color Computer machine lang. file */
+#define DRAGONBIN           /* Dragon DOS binary format */
+#define JAGSRV              /* Jaguar Server (SkunkBoard, VirtualJaguar) */
 #define SREC19              /* Motorola S-Record 16-bit addresses */
 #define SREC28              /* Motorola S-Record 24-bit addresses */
 #define SREC37              /* Motorola S-Record 32-bit addresses */

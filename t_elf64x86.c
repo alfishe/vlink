@@ -1,16 +1,8 @@
-/* $VER: vlink t_elf64x86.c V0.14 (24.06.11)
+/* $VER: vlink t_elf64x86.c V0.16d (28.02.20)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2011  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2011 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2020  Frank Wille
  */
 
 
@@ -34,6 +26,7 @@ struct FFFuncs fff_elf64x86 = {
   "elf64x86",
   NULL,
   NULL,
+  NULL,
   elf64_headersize,
   x86_64_identify,
   x86_64_readconv,
@@ -55,7 +48,7 @@ struct FFFuncs fff_elf64x86 = {
   0,
   RTAB_ADDEND,RTAB_STANDARD|RTAB_ADDEND,
   _LITTLE_ENDIAN_,
-  32
+  64,0
 };
 
 
@@ -120,9 +113,9 @@ static void x86_64_readconv(struct GlobalVars *gv,struct LinkFile *lf)
     if (ar_init(&ai,(char *)lf->data,lf->length,lf->filename)) {
       while (ar_extract(&ai)) {
         lf->objname = allocstring(ai.name);
-        elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
-                          ELFCLASS64,ELFDATA2LSB,ELF_VER,1,EM_X86_64);
-        elf64_parse(gv,lf,(struct Elf64_Ehdr *)ai.data,x86_64_reloc_elf2vlink);
+        if (elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
+                              ELFCLASS64,ELFDATA2LSB,ELF_VER,1,EM_X86_64))
+          elf64_parse(gv,lf,(struct Elf64_Ehdr *)ai.data,x86_64_reloc_elf2vlink);
       }
     }
     else
@@ -141,7 +134,6 @@ static struct Symbol *x86_64_dynentry(struct GlobalVars *gv,DynArg a,int etype)
 {
   struct Symbol *entry_sym = NULL;
   struct Section *sec;
-  char *bssname;
 
   switch (etype) {
 

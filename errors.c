@@ -1,16 +1,8 @@
-/* $VER: vlink errors.c V0.12d (03.05.09)
+/* $VER: vlink errors.c V0.16f (21.07.20)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2009  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2009 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2020  Frank Wille
  */
 
 
@@ -77,8 +69,8 @@ static struct {
     "%s=0x%llx + 0x%llx (value to write: 0x%llx) doesn't fit into %d bits",EF_ERROR,
   "%s: Malformatted archive member %s",EF_FATAL,
   "%s: Empty archive ignored",EF_WARNING,
-  "%s: %s doesn't support shared objects in library archives",EF_FATAL,
-  "%s: %s doesn't support executables in library archives",EF_FATAL,/* 40 */
+  "%s: %s doesn't support shared objects in library archives",EF_WARNING,
+  "%s: %s doesn't support executables in library archives",EF_WARNING,/* 40 */
   "%s (%s): Illegal format / file corrupted",EF_FATAL,
   "%s: Consistency check for archive member %s failed",EF_FATAL,
   "%s: Invalid ELF section header index (%d) in %s",EF_FATAL,
@@ -117,7 +109,7 @@ static struct {
   "%s line %d: GNU command <%s> ignored",EF_WARNING,
   "%s line %d: Unknown memory region <%s>",EF_ERROR,                /* 70 */
   "%s line %d: Multiple constructor types in output file",EF_ERROR,
-  "UNUSED %s line %d: Syntax error",EF_ERROR,
+  "UNUSED! %s line %d: Unknown keyword <%s>",EF_ERROR,
   "%s line %d: Assertion failed: %s",EF_FATAL,
   "%s line %d: SECTIONS block defined twice",EF_ERROR,
   "%s line %d: Segment %s is closed and can't be reused",EF_ERROR,  /* 75 */
@@ -127,7 +119,7 @@ static struct {
   "%s line %d: Undefined section: <%s>",EF_ERROR,
   "%s line %d: Section %s was assigned to more than one PT_LOAD "   /* 80 */
     "segment",EF_ERROR,
-  "UNUSED First ELF segment (%s) doesn't contain first section (%s)",EF_FATAL,
+  "Multiple use of section <%s> in linker script",EF_FATAL,
   "Intermediate uninitialized sections in ELF segment <%s> (first=<%s>, "
     "last=<%s>) will be turned into initialized",EF_WARNING,
   "Section <%s> (0x%llx-0x%llx) conflicts with ELF segment <%s> "
@@ -191,6 +183,18 @@ static struct {
   "%s: ELF symbol name has illegal offset 0x%lx in %s",EF_FATAL,
   "%s: Unkown endianess defaults to %s-endian. "
     "Consider using -EB/-EL",EF_WARNING,
+  "Resetting the same attribute for section %s",EF_WARNING,
+  "Bad assignment after option '%s'",EF_FATAL,                     /* 130 */
+  "Need a valid symbolic entry when using -gc-all",EF_FATAL,
+  "Executable code section in first object required when using -gc-all",
+    EF_FATAL,
+  "Unsupported absolute relocation (offs=%lld pos=%d siz=%d msk=0x%llx) "
+    "in resident data section",EF_ERROR,
+  "%s (%s+0x%x): Absolute reference to resident data section (%s)",EF_WARNING,
+  "%s line %d: Undefined memory region: <%s>",EF_ERROR,            /* 135 */
+  "Executable section <%s> in data segment not allowed",EF_ERROR,
+  "Not enough space for the module header (%u of %u)",EF_ERROR,
+  "Target %s: multiple %s sections not allowed:<%s> and <%s>",EF_ERROR,
 };
 
 

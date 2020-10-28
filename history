@@ -12,7 +12,149 @@ vlink history
 (aoutmint):   changes are relevant for MiNT only
 (vobj):       changes for VOBJ format
 (tos):        changes for the Atari TOS format
+(xfile):      changes for the Sharp X68000 XFile format
 
+
+- 0.16f (28.09.20)
+o New target file format os9-6809 to generate OS-9 modules for 6809 systems.
+o OS9-specific options: -os9-mem, -os9-name, -os9-ns, -os9-rev.
+o New binary target file formats applebin (Apple DOS 3.3), ataricom (Atari
+  8-bit), cocoml (Tandy Color Computer) and dragonbin (Dragon DOS).
+o New option -m enables special treatment of a feature-mask suffix in
+  symbol names (global definitions and external references).
+o New option -Crel emits constructor/destructor function references which
+  are relative to their table position.
+o Added cbmreu target for C64 REU memory expansion.
+o New linker script functions ORIGIN() and LENGTH() for memory regions.
+o Included description of linker scripts in the documentation.
+o Fixed bug with AT(lma) attribute in linker script section definitions.
+o (elf) Fixed reference to defined weak-symbols again.
+o (ados/ehf) External small-data references may have a signed addend now,
+  while small-data relocs still use an unsigned section-offset.
+
+- 0.16e (07.07.20)
+o Changing the address within an output section in a linker script didn't
+  work correctly when the destination memory region (load-address) differs
+  from the relocation memory region (execution-address).
+o Data commands in linker scripts didn't work when there was nothing
+  else in the output section.
+o Fixed a segfault when a linker script moves the address counter backwards
+  inside an output section.
+o Fixed uninitialized pointer when loading input files via a linker-script
+  INPUT command.
+o New linker-script command: RESERVE(n) to reserve n bytes of memory and
+  fill it with the current FILL value.
+o FILL-pattern should always be written in big-endian.
+o Replaced FILL command by FILL8 and FILL16.
+o New option -mall to merge everything into a single output section.
+o Weak symbols must only be resolved in executables.
+o (rawbin) Motorola S-Records: Fixed start address in S8 and S9 trailer.
+o (vobj) Fixed reference to a defined weak symbol in an object.
+o (elf) Fixed reference to a defined weak symbol in an object.
+
+- 0.16d (18.04.20)
+o New option -N for renaming input sections.
+o New option -vicelabels to generate a label-address mapping for the
+  debugger from the VICE emulator.
+o -M option for generating map files accepts an optional output file name.
+o Map files prints all symbols per section sorted by value. The values
+  are printed on the first column now, using the target address size for
+  formatting.
+o Multiple lines for the same section in a linker script are not allowed.
+o Try to avoid "segment is closed" errors in linker scripts which define
+  and use memory regions, and no PHDR definitions.
+o Fixed output of trailing zero-bytes in all hex-formats, like S-Records,
+  IHex, SHex1.
+o (ados/ehf) Always generate short-reloc hunks, when requested by -Rshort.
+  Relocs with offsets > 0xffff will be written in a separate hunk.
+o (ados/ehf) HUNK_LIB parsing sometimes failed. Fixed.
+o (rawbin) Target cbmprg no longer automatically splits the output file,
+  when there are larger gaps between output sections.
+o (rawbin) Trailing S-record (S7, S8, S9) contains the entry address.
+
+- 0.16c (10.06.19)
+o New target file format XFile, for Sharp X68000 computers. At the moment
+  only executables may be created. No object file support.
+o (ados/ehf) Handle data-bss sections correctly, when linking/stripping
+  executable files.
+
+- 0.16b (28.12.18)
+o New option -mtype: merge all sections of the same type (code, data,
+  bss), ignoring name and attributes.
+o (ados/ehf) Fixed possible segfault when linking resident modules.
+o (ados/ehf) Allow linking/stripping executables again.
+
+- 0.16a (14.08.17)
+o New linker script commands: BYTE, SHORT, LONG, QUAD, SQUAD.
+o New option -k: keep original section order from the objects.
+o Fixed crash with -gc-all and unreferenced symbols.
+o Fixed crash with unresolved weak symbols.
+o (ados/ehf) _INIT/_EXIT functions with register arguments (prefixed by
+  '@' instead of '_' for SAS/C-compatibility) are also detected, and their
+  pointers inserted into the proper con-/destructor tables.
+o (elf) Provide __CTOR_LIST_END, __DTOR_LIST_END.
+
+- 0.16 (16.05.17)
+o Fixed a potential crash when linking with empty object files, while
+  using a linker script.
+o (ados/ehf): Support blink/slink linker symbols _RESLEN, _RESBASE,
+  _NEWDATAL for generating resident (pure) programs.
+o (ados/ehf): Fixed SAS/C-compatibility linker symbol __BSSLEN. Now it
+  represents the number of long words instead of the number of bytes.
+  WARNING! Make sure to check your code, if you used __BSSLEN before!
+o (ados/ehf): AmigaOS LoadSeg() (up to V40) has a problem with allocating
+  data-bss sections, which have an initialized size of 0. Implemented a
+  workaround for this case.
+o (elf) Fixed crash in dynamic linking due to section-trimming.
+o (elf,aout) Malformatted library archive files are no longer fatal, but
+  will be ignored.
+o (rawseg) Do not write output sections marked with NOLOAD.
+
+- 0.15d (06.02.17)
+o Section-trimming, introduced with V0.15b, did not work well with ELF
+  executables. Fixed that.
+o New options -gc-all and -gc-empty for section garbage-collection.
+o New option -Z to prevent the linker from automatically removing a
+  section's trailing zero-bytes.
+o New output format: jagsrv. Absolute raw binary output, similar to rawbin1,
+  but with a header to make it load and execute via the Atari Jaguar
+  SkunkBoard or the VirtualJaguar emulator.
+o (ados/ehf): Fixed a memory leak in relocation output and optimized it.
+o (elf) Allow N_FUN stabs without a relocatable label in n_value.
+
+- 0.15c (01.11.16)
+o Fixed problems with relocation addend sign-extension, introduced in
+  the last version.
+
+- 0.15b (17.09.16)
+o Reworked reading and writing of relocations. Support more complex
+  relocations.
+o Fixed inserting little-endian relocations, which only worked before when
+  the reloc-fields started and ended on byte-boundaries.
+o Do not include zero-bytes at the end of a section into the ininitalized
+  file size, for those file format which support that.
+o (elf) Fixed illegal memory access when linking an ELF program without a
+  linker script.
+o (elf32jag) Fixed MOVEI-relocation.
+o (vobj) For little-endian the bit position in a byte of a reloc-field is
+  now counted from right to left. VOBJ files by vasm-versions older than
+  V1.7f may be incompatible for complex little-endian relocations (e.g. ARM).
+
+- 0.15a (12.03.16)
+o New option -mrel instructs the linker to merge all sections with
+  PC-relative references between them. This was done automatically
+  in previous versions, but makes no sense for most targets.
+o New option -hunkattr, which assigns memory attributes to an input section
+  name. The memory attributes of all those input sections will be
+  overwritten.
+o (elf) Introduced the new target "elf32jag", an unofficial ELF target
+  for the Atari Jaguar RISC CPU.
+o (ados/ehf) Read/write extended memory attributes (0xc0000000 in hunk
+  type or size). Extended attributes in object files seem inofficial,
+  but supported by vasm now.
+o (ados/ehf) Allow memory flags with HUNK_PPC_CODE in object files.
+o (ados/ehf) Support HUNK_RELRELOC32 in executables (since OS3.0).
+o (a.out) Fixed pc-relative relocations in relocatable object file output.
 
 - 0.15 (28.12.14)
 o (ados/ehf) Support for SAS/C style indexed libraries (HUNK_LIB).

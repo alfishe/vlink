@@ -1,16 +1,8 @@
-/* $VER: vlink t_elf32ppcbe.c V0.13 (22.11.10)
+/* $VER: vlink t_elf32ppcbe.c V0.15a (28.02.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2015  Frank Wille
  */
 
 
@@ -37,6 +29,7 @@ struct FFFuncs fff_elf32ppcbe = {
   "elf32ppcbe",
   NULL,
   NULL,
+  NULL,
   elf32_headersize,
   ppc32be_identify,
   ppc32be_readconv,
@@ -58,7 +51,7 @@ struct FFFuncs fff_elf32ppcbe = {
   0,
   RTAB_ADDEND,RTAB_ADDEND,
   _BIG_ENDIAN_,
-  32
+  32,2
 };
 #endif
 
@@ -75,6 +68,7 @@ static void morphos_writeexec(struct GlobalVars *,FILE *);
 
 struct FFFuncs fff_elf32powerup = {
   "elf32powerup",
+  NULL,
   NULL,
   NULL,
   elf32_headersize,
@@ -96,12 +90,13 @@ struct FFFuncs fff_elf32powerup = {
   0,
   RTAB_ADDEND,RTAB_ADDEND,
   _BIG_ENDIAN_,
-  32,
+  32,2,
   FFF_RELOCATABLE|FFF_PSEUDO_DYNLINK
 };
 
 struct FFFuncs fff_elf32morphos = {
   "elf32morphos",
+  NULL,
   NULL,
   NULL,
   elf32_headersize,
@@ -123,12 +118,13 @@ struct FFFuncs fff_elf32morphos = {
   0,
   RTAB_ADDEND,RTAB_ADDEND,
   _BIG_ENDIAN_,
-  32,
+  32,2,
   FFF_RELOCATABLE
 };
 
 struct FFFuncs fff_elf32amigaos = {
   "elf32amigaos",
+  NULL,
   NULL,
   NULL,
   elf32_headersize,
@@ -152,7 +148,7 @@ struct FFFuncs fff_elf32amigaos = {
   0,
   RTAB_ADDEND,RTAB_ADDEND,
   _BIG_ENDIAN_,
-  32,
+  32,2,
   FFF_DYN_RESOLVE_ALL
 };
 
@@ -328,11 +324,11 @@ static void ppc32be_readconv(struct GlobalVars *gv,struct LinkFile *lf)
     if (ar_init(&ai,(char *)lf->data,lf->length,lf->filename)) {
       while (ar_extract(&ai)) {
         lf->objname = allocstring(ai.name);
-        elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
-                          ELFCLASS32,ELFDATA2MSB,ELF_VER,
-                          3,EM_PPC,EM_PPC_OLD,EM_CYGNUS_POWERPC);
-        elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,
-                    ppc32_reloc_elf2vlink);
+        if (elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
+                              ELFCLASS32,ELFDATA2MSB,ELF_VER,
+                              3,EM_PPC,EM_PPC_OLD,EM_CYGNUS_POWERPC))
+          elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,
+                      ppc32_reloc_elf2vlink);
       }
     }
     else
@@ -433,7 +429,7 @@ static struct Section *ddrelocs_sec(struct GlobalVars *gv,
   s->id = ~0;
 
   ls = create_lnksect(gv,s->name,s->type,s->flags,s->protection,
-                      s->alignment);
+                      s->alignment,0);
   addtail(&ls->sections,&s->n);
   s->lnksec = ls;
   s->size = ls->size = 1; /* protect from deletion */
@@ -448,7 +444,7 @@ static int amiga_targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
 /* returns -1, if target doesn't want to combine them, */
 /* returns 0, if target doesn't care - standard linking rules are used. */
 {
-  if (!gv->dest_object && !gv->use_ldscript) {
+  if (!gv->use_ldscript) {
     if ((!strncmp(ls->name,sdata_name,6) && !strncmp(s->name,sbss_name,5)
          && *(ls->name+6) == *(s->name+5)) ||
         (!strncmp(ls->name,sbss_name,5) && !strncmp(s->name,sdata_name,6)
@@ -945,7 +941,7 @@ static void morphos_writeexec(struct GlobalVars *gv,FILE *f)
 
           sbss = create_lnksect(gv,sbss_name,ST_UDATA,
                                 ls->flags|SF_UNINITIALIZED,
-                                ls->protection,ls->alignment);
+                                ls->protection,ls->alignment,ls->memattr);
           sbss->size = ls->size - bss_sec->offset;
           sbss->data = alloc(sbss->size);
 

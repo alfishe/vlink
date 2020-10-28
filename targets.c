@@ -1,16 +1,8 @@
-/* $VER: vlink targets.c V0.15 (23.12.14)
+/* $VER: vlink targets.c V0.16f (02.09.20)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2014  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2020  Frank Wille
  */
 
 
@@ -27,6 +19,12 @@ struct FFFuncs *fff[] = {
 #endif
 #ifdef ATARI_TOS
   &fff_ataritos,
+#endif
+#ifdef XFILE
+  &fff_xfile,
+#endif
+#ifdef OS_9
+  &fff_os9_6809,
 #endif
 #ifdef ELF32_PPC_BE
   &fff_elf32ppcbe,
@@ -47,6 +45,9 @@ struct FFFuncs *fff[] = {
 #endif
 #ifdef ELF32_ARM_LE
   &fff_elf32armle,
+#endif
+#ifdef ELF32_JAG
+  &fff_elf32jag,
 #endif
 #ifdef ELF64_X86
   &fff_elf64x86,
@@ -93,8 +94,24 @@ struct FFFuncs *fff[] = {
 #ifdef AMSDOS
   &fff_amsdos,
 #endif
+#ifdef APPLEBIN
+  &fff_applebin,
+#endif
+#ifdef ATARICOM
+  &fff_ataricom,
+#endif
 #ifdef CBMPRG
   &fff_cbmprg,
+  &fff_cbmreu,
+#endif
+#ifdef COCOML
+  &fff_cocoml,
+#endif
+#ifdef DRAGONBIN
+  &fff_dragonbin,
+#endif
+#ifdef JAGSRV
+  &fff_jagsrv,
 #endif
 #ifdef SREC19
   &fff_srec19,
@@ -172,33 +189,50 @@ const char r13init_name[] = "__r13_init";
 const char noname[] = "";
 
 
+/* current list of section-renamings */
+struct SecRename *secrenames;
+
 
 struct Symbol *findsymbol(struct GlobalVars *gv,struct Section *sec,
-                          const char *name)
+                          const char *name,uint32_t mask)
 /* Return pointer to Symbol, otherwise return NULL.
    Make sure to prefer symbols from sec's ObjectUnit. */
 {
   if (fff[gv->dest_format]->fndsymbol) {
-    return fff[gv->dest_format]->fndsymbol(gv,sec,name);
+    return fff[gv->dest_format]->fndsymbol(gv,sec,name,mask);
   }
   else {
-    struct Symbol *sym = gv->symbols[elf_hash(name)%SYMHTABSIZE];
-    struct Symbol *found = NULL;
+    struct Symbol *sym,*found;
+    uint32_t minmask = ~0;
 
-    while (sym) {
+    for (sym=gv->symbols[elf_hash(name)%SYMHTABSIZE],found=NULL; sym!=NULL;
+         sym=sym->glob_chain) {
       if (!strcmp(name,sym->name)) {
-        if (found && sec) {
-          /* ignore, when not from the refering ObjectUnit */
-          if (sym->relsect->obj == sec->obj)
-            found = sym;
+        if (mask) {
+          /* find a symbol with the best-matching (minimal) feature-mask */
+          uint32_t fmask;
+
+          if (fmask = sym->fmask) {
+            if ((mask & fmask) != mask)
+              continue;
+            if (fmask <= minmask)
+              minmask = 0/*fmask*/;
+            else
+              continue;
+          }
+          else if (minmask != ~0)
+            continue;
         }
-        else
-          found = sym;
+        else if (found && sec) {
+          /* ignore, when not from the refering ObjectUnit */
+          if (sym->relsect->obj != sec->obj)
+            continue;
+        }
+        found = sym;
       }
-      sym = sym->glob_chain;
     }
     if (found!=NULL && found->type==SYM_INDIR)
-      return findsymbol(gv,sec,found->indir_name);
+      return findsymbol(gv,sec,found->indir_name,mask);
     return found;
   }
   return NULL;
@@ -411,10 +445,29 @@ struct Symbol *addsymbol(struct GlobalVars *gv,struct Section *s,
 /* return a pointer to its first definition. Defining the symbol twice */
 /* globally is only allowed in different object units of a library. */
 {
-  struct Symbol *sym;
   struct ObjectUnit *ou = s->obj;
-  struct Symbol **chain = &ou->objsyms[elf_hash(name)%OBJSYMHTABSIZE];
+  uint32_t fmask = 0;
+  struct Symbol *sym,**chain;
 
+  if (gv->masked_symbols && bind==SYMB_GLOBAL) {
+    /* Symbol name ends with a decimal number used as feature mask.
+       gv->masked_symbols defines the separation character. */
+    char *p;
+    size_t len;
+
+    if (p = strrchr(name,gv->masked_symbols)) {
+      if (isdigit((unsigned char)*(++p))) {
+        fmask = atoi(p);
+        len = p - name;
+        p = alloczero(len--);
+        strncpy(p,name,len);
+        name = (const char *)p;
+      }
+    }
+  }
+
+  /* check if symbol is already defined in this object */
+  chain = &ou->objsyms[elf_hash(name)%OBJSYMHTABSIZE];
   while (sym = *chain) {
     if (!strcmp(name,sym->name)) {
       if (chkdef)  /* do we have to warn about multiple def. ourselves? */
@@ -424,6 +477,7 @@ struct Symbol *addsymbol(struct GlobalVars *gv,struct Section *s,
     chain = &sym->obj_chain;
   }
 
+  /* new symbol */
   sym = alloczero(sizeof(struct Symbol));
   sym->name = name;
   sym->indir_name = iname;
@@ -434,6 +488,7 @@ struct Symbol *addsymbol(struct GlobalVars *gv,struct Section *s,
   sym->info = info;
   sym->bind = bind;
   sym->size = size;
+  sym->fmask = fmask;
 
   if (type == SYM_COMMON) {
     /* alignment of .common section must suit the biggest common-alignment */
@@ -614,7 +669,7 @@ void fixlnksymbols(struct GlobalVars *gv,struct LinkedSection *def_ls)
             /* add to final output section */
             addtail(&sym->relsect->lnksec->symbols,&sym->n);
             if (gv->map_file)
-              print_symbol(gv->map_file,sym);
+              print_symbol(gv,gv->map_file,sym);
           }
         }
       }
@@ -628,7 +683,7 @@ struct Symbol *find_any_symbol(struct GlobalVars *gv,struct Section *sec,
                                const char *name)
 /* return pointer to a global symbol or linker symbol */
 {
-  struct Symbol *sym = findsymbol(gv,sec,name);
+  struct Symbol *sym = findsymbol(gv,sec,name,0);
 
   if (sym == NULL)
     sym = findlnksymbol(gv,name);
@@ -704,6 +759,43 @@ void reenter_global_objsyms(struct GlobalVars *gv,struct ObjectUnit *ou)
 }
 
 
+static struct SymbolMask *makesymbolmask(struct GlobalVars *gv,
+                                         const char *name,uint32_t mask)
+{
+  struct SymbolMask **chain = &gv->symmasks[elf_hash(name)%SMASKHTABSIZE];
+  struct SymbolMask *sm;
+
+  while (sm = *chain) {
+    if (!strcmp(name,sm->name)) {
+      /* mask for this symbol already exists, so add it */
+      sm->common_mask |= mask;
+      return sm;
+    }
+    chain = &sm->next;
+  }
+
+  /* make a new symbol mask */
+  *chain = sm = alloc(sizeof(struct SymbolMask));
+  sm->next = NULL;
+  sm->name = name;
+  sm->common_mask = mask;
+  return sm;
+}
+
+
+struct RelocInsert *initRelocInsert(struct RelocInsert *ri,uint16_t pos,
+                                    uint16_t siz,lword msk)
+{
+  if (ri == NULL)
+    ri = alloc(sizeof(struct RelocInsert));
+  ri->next = NULL;
+  ri->bpos = pos;
+  ri->bsiz = siz;
+  ri->mask = msk;
+  return ri;
+}
+
+
 struct Reloc *newreloc(struct GlobalVars *gv,struct Section *sec,
                        const char *xrefname,struct Section *rs,uint32_t id,
                        unsigned long offset,uint8_t rtype,lword addend)
@@ -711,7 +803,30 @@ struct Reloc *newreloc(struct GlobalVars *gv,struct Section *sec,
 {
   struct Reloc *r = alloczero(sizeof(struct Reloc));
 
-  if (r->xrefname = xrefname) {
+  if (xrefname) {
+    /* external symbol reference */
+
+    if (gv->masked_symbols) {
+      /* Referenced symbol name ends with a decimal number used as a
+         mask for feature-requirements.
+         gv->masked_symbols defines the separation character. */
+      char *p;
+      size_t len;
+      uint32_t fmask;
+
+      if (p = strrchr(xrefname,gv->masked_symbols)) {
+        if (isdigit((unsigned char)*(++p))) {
+          fmask = atoi(p);
+          len = p - xrefname;
+          p = alloczero(len--);
+          strncpy(p,xrefname,len);
+          xrefname = (const char *)p;
+          r->relocsect.smask = makesymbolmask(gv,xrefname,fmask);
+          r->flags |= RELF_MASKED;
+        }
+      }
+    }
+
     if (sec->obj) {
       uint16_t flags = sec->obj->lnkfile->flags;
 
@@ -727,11 +842,13 @@ struct Reloc *newreloc(struct GlobalVars *gv,struct Section *sec,
         r->xrefname = new_name;
       }
     }
+    r->xrefname = xrefname;
   }
-  if (rs)
+  else if (rs)
     r->relocsect.ptr = rs;
   else
     r->relocsect.id = id;
+
   r->offset = offset;
   r->addend = addend;
   r->rtype = rtype;
@@ -745,14 +862,10 @@ void addreloc(struct Section *sec,struct Reloc *r,
    which will be inserted into the sections reloc list, if not
    already done. */
 {
-  struct RelocInsert *new = alloc(sizeof(struct RelocInsert));
-  struct RelocInsert *ri = r->insert;
+  struct RelocInsert *ri,*new;
 
-  new->next = NULL;
-  new->bpos = pos;
-  new->bsiz = siz;
-  new->mask = mask;
-  if (ri) {
+  new = initRelocInsert(NULL,pos,siz,mask);
+  if (ri = r->insert) {
     while (ri->next)
       ri = ri->next;
     ri->next = new;
@@ -765,6 +878,17 @@ void addreloc(struct Section *sec,struct Reloc *r,
       addtail(&sec->xrefs,&r->n);  /* add to current section's XRef list */
     else
       addtail(&sec->relocs,&r->n);  /* add to current section's Reloc list */
+  }
+}
+
+
+void addreloc_ri(struct Section *sec,struct Reloc *r,struct RelocInsert *ri)
+/* Call addreloc with information from the supplied RelocInsert structure.
+   May result in multiple addreloc-calls. */
+{
+  while (ri != NULL) {
+    addreloc(sec,r,ri->bpos,ri->bsiz,ri->mask);
+    ri = ri->next;
   }
 }
 
@@ -876,49 +1000,40 @@ bool checktargetext(struct LinkedSection *ls,uint8_t id,uint8_t subid)
 }
 
 
-lword readsection(struct GlobalVars *gv,uint8_t rtype,uint8_t *p,
-                  uint16_t bpos,uint16_t bsiz,lword mask)
-/* Read data from section at 'p', using bit-offset 'bpos' and a field-size
-   of 'bsiz' bits. The result is denormalized using the supplied mask.
-   Complex RelocInsert scenarios are not supported, but this doesn't
-   matter as those relocations have their addend information available
-   anyway (ELF: .rela section) and don't need to read it from a section. */
+lword readsection(struct GlobalVars *gv,uint8_t rtype,uint8_t *src,
+                  struct RelocInsert *ri)
+/* Read data from section at 'src', using the field-offsets, sizes and masks
+   from the supplied list of RelocInsert structures. */
 {
-  lword v = 0;
-  int n;
+  int be = gv->endianess != _LITTLE_ENDIAN_;
+  int maxfldsz = 0;
+  lword data = 0;
 
-  p += bpos >> 3;
-  bpos &= 7;
+  while (ri != NULL) {
+    lword mask = ri->mask;
+    lword v;
+    int n;
 
-  if (n = (bpos + bsiz + 7) >> 3) {
-    if (gv->endianess == _LITTLE_ENDIAN_) {
-      p += n;
-      while (n--) {
-        v <<= 8;
-        v |= (lword)*(--p);
-      }
-      v >>= bpos;  /* normalize extracted bit-field */
-    }
-    else {  /* _BIG_ENDIAN_ or undefined */
-      while (n--) {
-        v <<= 8;
-        v |= (lword)*p++;
-      }
-      v >>= (8 - ((bpos + bsiz) & 7)) & 7; /* normalize extracted bit-field */
-    }
-    v &= makemask(bsiz);
+    n = mask==-1 ? (int)ri->bsiz : highest_bit_set(mask) + 1;
+    if (n > maxfldsz)
+      maxfldsz = n;
+
+    /* read from bitfield */
+    v = readreloc(be,src,ri->bpos,ri->bsiz);
 
     /* mask and denormalize the read value using 'mask' */
     n = lshiftcnt(mask);
     mask >>= n;
     v &= mask;
-    if (rtype==R_SD || rtype==R_SD2 || rtype==R_SD21)
-      v <<= n;
-    else
-      v = sign_extend(v,(int)bsiz) << n;  /* sign-extend */
+    v <<= n;
+
+    /* add to data value, next RelocInsert */
+    data += v;
+    ri = ri->next;
   }
 
-  return v;
+  /* always sign-extend - target has to trim the value when needed */
+  return sign_extend(data,maxfldsz);
 }
 
 
@@ -928,80 +1043,42 @@ lword writesection(struct GlobalVars *gv,uint8_t *dest,struct Reloc *r,lword v)
    Returns 0 on success or the masked and normalized value which failed
    on the range check. */
 {
+  bool be = gv->endianess != _LITTLE_ENDIAN_;
+  uint8_t t = r->rtype;
+  bool signedval = t==R_PC||t==R_GOTPC||t==R_GOTOFF||t==R_PLTPC||t==R_PLTOFF||
+                   t==R_SD||t==R_SD2||t==R_SD21||t==R_MOSDREL;
   struct RelocInsert *ri;
 
-  if (r->rtype == R_NONE)
+  if (t == R_NONE)
     return 0;
 
-  if (ri = r->insert) {
-    lword lastval = 0;  /* add reloc-addends to this value */
-    uint8_t t = r->rtype;
-    bool signedval = t==R_PC||t==R_GOTPC||t==R_GOTOFF||t==R_PLTPC||t==R_PLTOFF
-                     ||t==R_SD||t==R_SD2||t==R_SD21||t==R_MOSDREL;
-    bool be = gv->endianess == _BIG_ENDIAN_;
+  /* Reset all relocation fields to zero. */
+  for (ri=r->insert; ri!=NULL; ri=ri->next)
+    writereloc(be,dest,ri->bpos,ri->bsiz,0);
 
-    do {
-      /* first mask and normalize the value, then check if it
-         fits into the bitfield */
-      lword mask = ri->mask;
-      lword insval = v & mask;
-      uint8_t *p = dest + (ri->bpos >> 3);
-      int bpos = (int)ri->bpos & 7;
-      int bsiz = (int)ri->bsiz;
-      int n;
+  /* add value to relocation fields */
+  for (ri=r->insert; ri!=NULL; ri=ri->next) {
+    lword mask = ri->mask;
+    lword insval = v & mask;
+    lword oldval;
+    int bpos = ri->bpos;
+    int bsiz = ri->bsiz;
 
-      insval >>= lshiftcnt(mask);  /* normalize according mask */
-      if (mask>=0 && signedval)
-        insval = sign_extend(insval,bsiz);
-      insval += lastval;
-      lastval = insval;
-      if (!checkrange(insval,signedval,bsiz))
-        return insval;  /* range check failed on 'insval' */
+    insval >>= lshiftcnt(mask);  /* normalize according mask */
+    if (mask>=0 && signedval)
+      insval = sign_extend(insval,bsiz);
 
-      /* insert into bitfield, obeying target endianess */
-      if (n = (bpos + bsiz + 7) >> 3) {
-        if (be) {  /* write for big-endian target */
-          int sh = (8 - ((bpos + bsiz) & 7)) & 7;
-          uint8_t m = 0xff << sh;  /* mask for LSB */
-          uint8_t b;
+    if (!checkrange(insval,signedval,bsiz))
+      return insval;  /* range check failed on 'insval' */
 
-          insval <<= sh;  /* shift to fit bitfield */
-          p += n;
-          while (n--) {
-            if (!n)
-              m &= (1 << (8-(bpos&7))) - 1;  /* apply mask for MSB */
-
-            b = *(--p) & ~m;
-            *p = b | ((uint8_t)insval & m);
-            insval >>= 8;
-            m = 0xff;
-          }
-        }
-        else {  /* write for little-endian target */
-          uint8_t m = 0xff << bpos;  /* mask for LSB */
-          uint8_t b;
-
-          insval <<= bpos;  /* shift to fit bitfield */
-          while (n--) {
-            if (!n && ((bpos+bsiz)&7)!=0)
-              m &= (1 << ((bpos+bsiz)&7)) - 1;  /* apply mask for MSB */
-
-            b = *p & ~m;
-            *p++ = b | ((uint8_t)insval & m);
-            insval >>= 8;
-            m = 0xff;
-          }
-        }
-      }
-    }
-    while (ri = ri->next);
-
-    return 0;
+    /* add to value already present in this field */
+    oldval = readreloc(be,dest,bpos,bsiz);
+    if (mask>=0 && signedval)
+      oldval = sign_extend(oldval,bsiz);
+    writereloc(be,dest,bpos,bsiz,oldval+insval);
   }
 
-  ierror("writesection(): Reloc (type=%d offs=%lu add=%lld) without "
-         " insert field def.\n",(int)r->rtype,r->offset,r->addend);
-  return -1;
+  return 0;
 }
 
 
@@ -1024,7 +1101,8 @@ void calc_relocs(struct GlobalVars *gv,struct LinkedSection *ls)
       else
         ierror("calc_relocs: Reloc type %d (%s) at %s+0x%lx (addend 0x%llx)"
                " is missing a relocsect.lnk",
-               (int)r->rtype,reloc_name[r->rtype],ls->name,r->offset,r->addend);
+               (int)r->rtype,reloc_name[r->rtype],ls->name,r->offset,
+               (unsigned long long)r->addend);
     }
 
     s = r->relocsect.lnk->base;
@@ -1063,7 +1141,7 @@ void calc_relocs(struct GlobalVars *gv,struct LinkedSection *ls)
       /* Calculated value doesn't fit into relocation type x ... */
       if (ri = r->insert)
         error(35,gv->dest_name,ls->name,r->offset,val,reloc_name[r->rtype],
-              (int)ri->bpos,(int)ri->bsiz,ri->mask);
+              (int)ri->bpos,(int)ri->bsiz,(unsigned long long)ri->mask);
       else
         ierror("%sReloc (%s+%lx), type=%s, without RelocInsert",
                fn,ls->name,r->offset,reloc_name[r->rtype]);
@@ -1205,46 +1283,11 @@ static int vbcc_xtors_pri(const char *s)
 }
 
 
-static void add_vbcc_xtors(struct GlobalVars *gv,struct list *objlist,
-                           const char *cname,const char *dname,
-                           const char *csecname,const char *dsecname,
-                           const char *clabel,const char *dlabel)
-{
-  struct ObjectUnit *obj;
-  int clen = strlen(cname);
-  int dlen = strlen(dname);
-  int i;
-
-  for (obj=(struct ObjectUnit *)objlist->first;
-       obj->n.next!=NULL; obj=(struct ObjectUnit *)obj->n.next) {
-    for (i=0; i<OBJSYMHTABSIZE; i++) {
-      struct Symbol *sym = obj->objsyms[i];
-
-      while (sym) {
-        if (sym->bind==SYMB_GLOBAL) {
-          if (!strncmp(sym->name,cname,clen)) {
-            new_priptr(obj,csecname,clabel,vbcc_xtors_pri(sym->name+clen),
-                       sym->name,0);
-          }
-          else if (!strncmp(sym->name,dname,dlen))
-            new_priptr(obj,dsecname,dlabel,vbcc_xtors_pri(sym->name+dlen),
-                       sym->name,0);
-        }
-        sym = sym->obj_chain;
-      }
-    }
-
-    if (objlist == &gv->selobjects)
-      add_priptrs(gv,obj);  /* con-/destructors are already known */
-  }
-}
-
-
 static int sasc_xtors_pri(const char *s)
 /* Return priority of a SAS/C constructor/destructor function name.
    Its priority may be specified by a number behind the 2nd underscore.
    For SAS/C a lower value means higher priority!
-   Example: _INIT_110_OpenLibs (constructor with priority 110) */
+   Example: _STI_110_OpenLibs (constructor with priority 110) */
 {
   if (*s++ == '_')
     if (isdigit((unsigned)*s))
@@ -1253,10 +1296,11 @@ static int sasc_xtors_pri(const char *s)
 }
 
 
-static void add_sasc_xtors(struct GlobalVars *gv,struct list *objlist,
-                           const char *cname,const char *dname,
-                           const char *csecname,const char *dsecname,
-                           const char *clabel,const char *dlabel)
+static void add_xtors(struct GlobalVars *gv,struct list *objlist,
+                      int (*xtors_pri)(const char *),int elf,
+                      const char *cname,const char *dname,
+                      const char *csecname,const char *dsecname,
+                      const char *clabel,const char *dlabel)
 {
   struct ObjectUnit *obj;
   int clen = strlen(cname);
@@ -1267,23 +1311,26 @@ static void add_sasc_xtors(struct GlobalVars *gv,struct list *objlist,
        obj->n.next!=NULL; obj=(struct ObjectUnit *)obj->n.next) {
     for (i=0; i<OBJSYMHTABSIZE; i++) {
       struct Symbol *sym = obj->objsyms[i];
+      const char *p;
 
       while (sym) {
         if (sym->bind==SYMB_GLOBAL) {
-          if (!strncmp(sym->name,cname,clen)) {
-            new_priptr(obj,csecname,clabel,sasc_xtors_pri(sym->name+clen),
-                       sym->name,0);
-          }
-          else if (!strncmp(sym->name,dname,dlen))
-            new_priptr(obj,dsecname,dlabel,sasc_xtors_pri(sym->name+dlen),
-                       sym->name,0);
+          p = sym->name;
+          if (!elf && (*p=='_' || *p=='@'))
+            p++;
+          if (!strncmp(p,cname,clen))
+            new_priptr(obj,csecname,clabel,xtors_pri(p+clen),sym->name,0);
+          else if (!strncmp(p,dname,dlen))
+            new_priptr(obj,dsecname,dlabel,xtors_pri(p+dlen),sym->name,0);
         }
         sym = sym->obj_chain;
       }
     }
 
+    /* Con-/destructors from selobjects are already known to the linker.
+       The rest is added when their objects are pulled in from a library. */
     if (objlist == &gv->selobjects)
-      add_priptrs(gv,obj);  /* con-/destructors are already known */
+      add_priptrs(gv,obj);
   }
 }
 
@@ -1293,14 +1340,15 @@ void collect_constructors(struct GlobalVars *gv)
    and destructor functions of the required type. */
 {
   if (!gv->dest_object) {
-    const char *sasc_ctor = "__STI";
-    const char *sasc_dtor = "__STD";
-    const char *vbcc_ctor = "__INIT";
-    const char *vbcc_dtor = "__EXIT";
-    const char *ctor_label = "___CTOR_LIST__";
-    const char *dtor_label = "___DTOR_LIST__";
     const char *csec = xtors_secname(gv,ctors_name);
     const char *dsec = xtors_secname(gv,dtors_name);
+    const char *sasc_ctor = "_STI";
+    const char *sasc_dtor = "_STD";
+    const char *vbcc_ctor = "_INIT";
+    const char *vbcc_dtor = "_EXIT";
+    const char *ctor_label = "___CTOR_LIST__";
+    const char *dtor_label = "___DTOR_LIST__";
+    int elf = 0;
 
     switch (gv->collect_ctors_type) {
 
@@ -1311,27 +1359,26 @@ void collect_constructors(struct GlobalVars *gv)
         break;  /* @@@ already put into .ctors/.dtors anyway? */
 
       case CCDT_VBCC_ELF:  /* no leading underscores */
-        vbcc_ctor++;
-        vbcc_dtor++;
+        elf = 1;
         ctor_label++;
         dtor_label++;
       case CCDT_VBCC:
         add_xtor_sym(gv,1,ctor_label);  /* define __CTOR_LIST__ */
-        add_vbcc_xtors(gv,&gv->selobjects,
-                       vbcc_ctor,vbcc_dtor,csec,dsec,ctor_label,dtor_label);
         add_xtor_sym(gv,0,dtor_label);  /* define __DTOR_LIST__ */
-        add_vbcc_xtors(gv,&gv->libobjects,
-                       vbcc_ctor,vbcc_dtor,csec,dsec,ctor_label,dtor_label);
+        add_xtors(gv,&gv->selobjects,vbcc_xtors_pri,elf,
+                  vbcc_ctor,vbcc_dtor,csec,dsec,ctor_label,dtor_label);
+        add_xtors(gv,&gv->libobjects,vbcc_xtors_pri,elf,
+                  vbcc_ctor,vbcc_dtor,csec,dsec,ctor_label,dtor_label);
         break;
 
       case CCDT_SASC:
         /* ___ctors/___dtors will be directed to __CTOR_LIST__/__DTOR_LIST */
         add_xtor_sym(gv,1,ctor_label);  /* define __CTOR_LIST__ */
-        add_sasc_xtors(gv,&gv->selobjects,
-                       sasc_ctor,sasc_dtor,csec,dsec,ctor_label,dtor_label);
         add_xtor_sym(gv,0,dtor_label);  /* define __DTOR_LIST__ */
-        add_sasc_xtors(gv,&gv->libobjects,
-                       sasc_ctor,sasc_dtor,csec,dsec,ctor_label,dtor_label);
+        add_xtors(gv,&gv->selobjects,sasc_xtors_pri,0,
+                  sasc_ctor,sasc_dtor,csec,dsec,ctor_label,dtor_label);
+        add_xtors(gv,&gv->libobjects,sasc_xtors_pri,0,
+                  sasc_ctor,sasc_dtor,csec,dsec,ctor_label,dtor_label);
         break;
 
       default:
@@ -1517,6 +1564,136 @@ void add_objunit(struct GlobalVars *gv,struct ObjectUnit *ou,bool fixrelocs)
 }
 
 
+struct SecAttrOvr *addsecattrovr(struct GlobalVars *gv,char *name,
+                                 uint32_t flags)
+/* Create a new SecAttrOvr node and append it to the list. When a node
+   for the same input section name is already present, then reuse it.
+   Print a warning, when trying to reset the same attribute. */
+{
+  struct SecAttrOvr *sao;
+
+  for (sao=gv->secattrovrs; sao!=NULL; sao=sao->next) {
+    if (!strcmp(sao->name,name))
+      break;
+  }
+
+  if (sao != NULL) {
+    if ((sao->flags & flags) != 0)
+      error(129,name);  /* resetting attribute for section */
+  }
+  else {
+    struct SecAttrOvr *prev = gv->secattrovrs;
+
+    sao = alloczero(sizeof(struct SecAttrOvr)+strlen(name));
+    strcpy(sao->name,name);
+    if (prev) {
+      while (prev->next)
+        prev = prev->next;
+      prev->next = sao;
+    }
+    else
+      gv->secattrovrs = sao;
+  }
+
+  sao->flags |= flags;
+  return sao;
+}
+
+
+struct SecAttrOvr *getsecattrovr(struct GlobalVars *gv,const char *name,
+                                 uint32_t flags)
+/* Return a SecAttrOvr node which matches section name and flags. */
+{
+  struct SecAttrOvr *sao;
+
+  if (name == NULL)
+    name = noname;
+  for (sao=gv->secattrovrs; sao!=NULL; sao=sao->next) {
+    if (!strcmp(sao->name,name) && (sao->flags & flags)!=0)
+      break;
+  }
+  return sao;
+}
+
+
+void addsecrename(const char *orgname,const char *newname)
+/* Create a new SecRename node and append it to the list. When a node
+   for the same input section name is already present, then reuse it.
+   When the new name matches the original name: remove the node. */
+{
+  struct SecRename *sr,*prev;
+
+  for (sr=secrenames,prev=NULL; sr!=NULL; sr=sr->next) {
+    if (!strcmp(sr->orgname,orgname))
+      break;
+    prev = sr;
+  }
+
+  if (sr != NULL) {
+    if (!strcmp(sr->orgname,newname)) {
+      /* renaming is disabled - remove that node */
+      if (prev)
+        prev->next = sr->next;
+      else
+        secrenames = sr->next;
+      free(sr);
+    }
+    else
+      sr->newname = newname;
+  }
+  else {
+    sr = alloc(sizeof(struct SecRename));
+    sr->next = NULL;
+    sr->orgname = orgname;
+    sr->newname = newname;
+    if (prev)
+      prev->next = sr;
+    else
+      secrenames = sr;
+  }
+}
+
+
+struct SecRename *getsecrename(void)
+/* Return a copy of the current section-renaming list. */
+{
+  struct SecRename *sr,*newsr,*srcopy,*srlast;
+
+  for (sr=secrenames,srcopy=NULL; sr!=NULL; sr=sr->next) {
+    newsr = alloc(sizeof(struct SecRename));
+    newsr->next = NULL;
+    newsr->orgname = sr->orgname;
+    newsr->newname = sr->newname;
+
+    if (srlast = srcopy) {
+      while (srlast->next != NULL)
+        srlast = srlast->next;
+      srlast->next = newsr;
+    }
+    else
+      srcopy = newsr;
+  }
+  return srcopy;
+}
+
+
+static const char *do_rename(struct SecRename *sr,const char *name)
+/* Find matching SecRename node and return the new name, if present.
+   Otherwise return the original name. */
+{
+  if (name != NULL) {
+    for (; sr!=NULL; sr=sr->next) {
+      if (!strcmp(sr->orgname,name))
+        return sr->newname;
+    }
+  }
+  else
+    return noname;
+
+  return name;
+}
+
+
 struct Section *create_section(struct ObjectUnit *ou,const char *name,
                                uint8_t *data,unsigned long size)
 /* creates and initializes a Section node */
@@ -1524,10 +1701,8 @@ struct Section *create_section(struct ObjectUnit *ou,const char *name,
   static uint32_t idcnt = 0;
   struct Section *s = alloczero(sizeof(struct Section));
 
-  if (name)
-    s->name = name;
-  else
-    s->name = noname;
+  s->name = do_rename(ou->lnkfile->renames,name);
+  s->hash = elf_hash(s->name);
   s->data = data;
   s->size = size;
   s->obj = ou;
@@ -1555,6 +1730,20 @@ struct Section *add_section(struct ObjectUnit *ou,const char *name,
   if (type != ST_TMP)  /* TMP sections must not be part of the link process */
     addtail(&ou->sections,&sec->n);
   return sec;
+}
+
+
+bool is_common_sec(struct GlobalVars *gv,struct Section *sec)
+{
+  return !SECNAMECMPH(sec,gv->common_sec_name,gv->common_sec_hash) ||
+         !SECNAMECMPH(sec,gv->scommon_sec_name,gv->scommon_sec_hash);
+}
+
+
+bool is_common_ls(struct GlobalVars *gv,struct LinkedSection *ls)
+{
+  return !SECNAMECMPH(ls,gv->common_sec_name,gv->common_sec_hash) ||
+         !SECNAMECMPH(ls,gv->scommon_sec_name,gv->scommon_sec_hash);
 }
 
 
@@ -1603,6 +1792,7 @@ struct Section *abs_section(struct ObjectUnit *ou)
 }
 
 
+#if UNUSED
 struct Section *dummy_section(struct GlobalVars *gv,struct ObjectUnit *ou)
 /* Make a dummy section already attached to a dummy-LinkedSection, which
    won't appear in any section lists.
@@ -1617,6 +1807,7 @@ struct Section *dummy_section(struct GlobalVars *gv,struct ObjectUnit *ou)
                     SF_ALLOC|SF_UNINITIALIZED,SP_READ|SP_WRITE,0,TRUE);
     s->lnksec = ls;
     ls->name = s->name;
+    ls->hash = s->hash;
     ls->type = s->type;
     ls->flags = s->flags;
     ls->protection = s->protection;
@@ -1629,11 +1820,13 @@ struct Section *dummy_section(struct GlobalVars *gv,struct ObjectUnit *ou)
   }
   return s;
 }
+#endif
 
 
 struct LinkedSection *create_lnksect(struct GlobalVars *gv,const char *name,
                                      uint8_t type,uint8_t flags,
-                                     uint8_t protection,uint8_t alignment)
+                                     uint8_t protection,uint8_t alignment,
+                                     uint32_t memattr)
 /* create and initialize a LinkedSection node and include */
 /* it in the global list */
 {
@@ -1641,10 +1834,12 @@ struct LinkedSection *create_lnksect(struct GlobalVars *gv,const char *name,
 
   ls->index = gv->nsecs++;
   ls->name = name;
+  ls->hash = elf_hash(name);
   ls->type = type;
   ls->flags = flags;
   ls->protection = protection;
   ls->alignment = alignment;
+  ls->memattr = memattr;
   initlist(&ls->sections);
   initlist(&ls->relocs);
   initlist(&ls->xrefs);
@@ -1658,8 +1853,14 @@ static struct Section *add_xtor_section(struct GlobalVars *gv,
                                         struct ObjectUnit *ou,const char *name,
                                         uint8_t *data,unsigned long size)
 {
-  return add_section(ou,name,data,size,ST_DATA,
-                     SF_ALLOC,SP_READ|SP_WRITE,2,FALSE);
+  struct Section *sec = add_section(ou,name,data,size,ST_DATA,
+                                    SF_ALLOC,SP_READ,gv->ptr_alignment,FALSE);
+  struct SecAttrOvr *sao;
+
+  if (sao = getsecattrovr(gv,name,SAO_MEMFLAGS))
+    sec->memattr = sao->memflags;
+
+  return sec;
 }
 
 
@@ -1672,6 +1873,9 @@ static void write_constructors(struct GlobalVars *gv,struct ObjectUnit *ou,
   struct Section *sec;
   struct PriPointer *pp;
   int extraslots;
+
+  if(asize == 0)
+    asize = gv->bits_per_taddr / 8;
 
   /* Format for vbcc constructors: <num>, [ <ptrs>... ], NULL */
   /* Format for SAS/C constructors: [ <ptrs>...], NULL */
@@ -1720,7 +1924,7 @@ static void write_constructors(struct GlobalVars *gv,struct ObjectUnit *ou,
       data += writetaddr(gv,data,pp->addend);
       if (pp->xrefname) {
         r = newreloc(gv,sec,pp->xrefname,NULL,0,(unsigned long)offset,
-                     R_ABS,pp->addend);
+                     gv->pcrel_ctors?R_PC:R_ABS,pp->addend);
         addreloc(sec,r,0,asize<<3,-1);
       }
       sec->size += asize;
@@ -1743,6 +1947,7 @@ void make_constructors(struct GlobalVars *gv)
     struct PriPointer *pp;
     uint8_t *data;
     struct ObjectUnit *ou;
+    unsigned int asize;
 
     /* check if constructors or destructors are needed (referenced) */
     if (gv->ctor_symbol) {
@@ -1797,10 +2002,14 @@ void make_constructors(struct GlobalVars *gv)
       }
     }
 
+    asize = fff[gv->dest_format]->addr_bits / 8;
+    if(asize == 0)
+      asize = gv->bits_per_taddr / 8;
+
     /* create artificial object */
-    clen = (unsigned long)(fff[gv->dest_format]->addr_bits / 8) *
+    clen = (unsigned long)(asize) *
             (ctors ? nctors+2 : 0);
-    dlen = (unsigned long)(fff[gv->dest_format]->addr_bits / 8) *
+    dlen = (unsigned long)(asize) *
             (dtors ? ndtors+2 : 0);
     data = alloczero(clen + dlen);
     ou = art_objunit(gv,"INITEXIT",data,clen+dlen);
@@ -1860,19 +2069,22 @@ void get_text_data_bss(struct GlobalVars *gv,struct LinkedSection **sections)
           if (sections[0]==NULL)
             sections[0] = ls;
           else
-            ierror("%sMultiple code sections (%s)",fn,ls->name);
+            error(138,fff[gv->dest_format]->tname,"text",
+                  sections[0]->name,ls->name);
           break;
         case ST_DATA:
           if (sections[1]==NULL)
             sections[1] = ls;
           else
-            ierror("%sMultiple data sections (%s)",fn,ls->name);
+            error(138,fff[gv->dest_format]->tname,"data",
+                  sections[1]->name,ls->name);
           break;
         case ST_UDATA:
           if (sections[2]==NULL)
             sections[2] = ls;
           else
-            ierror("%sMultiple bss sections (%s)",fn,ls->name);
+            error(138,fff[gv->dest_format]->tname,"bss",
+                  sections[2]->name,ls->name);
           break;
         default:
           ierror("%sIllegal section type %d (%s)",fn,(int)ls->type,ls->name);
@@ -1931,17 +2143,19 @@ lword entry_address(struct GlobalVars *gv)
   if (gv->entry_name) {
     lword entry = 0;
 
-    if (sym = findsymbol(gv,NULL,gv->entry_name)) {
+    if (sym = findsymbol(gv,NULL,gv->entry_name,0)) {
       return (lword)sym->value;
     }
     else if (isdigit((unsigned char)*gv->entry_name)) {
-      if (sscanf(gv->entry_name,"%lli",&entry) == 1)
-        return entry;
+      long long tmp;
+
+      if (sscanf(gv->entry_name,"%lli",&tmp) == 1)
+        return entry = tmp;
     }
   }
 
   /* plan b: search for _start symbol: */
-  if (sym = findsymbol(gv,NULL,"_start"))
+  if (sym = findsymbol(gv,NULL,"_start",0))
       return (lword)sym->value;
 
   /* plan c: search for first executable section */
@@ -1953,8 +2167,32 @@ lword entry_address(struct GlobalVars *gv)
 }
 
 
-struct Symbol *bss_entry(struct ObjectUnit *ou,const char *secname,
-                         struct Symbol *xdef)
+struct Section *entry_section(struct GlobalVars *gv)
+{
+  struct Section *sec;
+  struct Symbol *sym;
+
+  /* get section of entry-symbol or _start */
+  if (gv->entry_name) {
+    if ((sym = findsymbol(gv,NULL,gv->entry_name,0)) == NULL)
+      error(131);  /* need a valid symbolic entry */
+  }
+  else
+    sym = findsymbol(gv,NULL,"_start",0);
+
+  if (sym != NULL)
+    sec = sym->relsect;
+  else  /* no entry: use the first code section from the first object */
+    sec = find_sect_type((struct ObjectUnit *)gv->selobjects.first,
+                         ST_CODE,SP_READ|SP_EXEC);
+  if (sec == NULL)
+    error(132);  /* executable code section in 1st object required */
+  return sec;
+}
+
+
+struct Symbol *bss_entry(struct GlobalVars *gv,struct ObjectUnit *ou,
+                         const char *secname,struct Symbol *xdef)
 /* Create a BSS section in the object ou with space for xdef's size. 
    The symbol will be changed to the base address of this section and
    enqueued in the section's object symbol list.
@@ -1968,10 +2206,73 @@ struct Symbol *bss_entry(struct ObjectUnit *ou,const char *secname,
     xdef->value = 0;
     xdef->relsect = add_section(ou,secname,NULL,xdef->size,ST_UDATA,
                                 SF_ALLOC|SF_UNINITIALIZED,
-                                SP_READ|SP_WRITE,2,TRUE);
+                                SP_READ|SP_WRITE,gv->ptr_alignment,TRUE);
     add_objsymbol(ou,xdef);
     return xdef;
   }
 
   return NULL;
+}
+
+
+void trim_sections(struct GlobalVars *gv)
+{
+  struct LinkedSection *ls;
+  struct Section *sec,*nextsec;
+
+  /* Remove zero-bytes at the end of a section from filesize in executables */
+  if (!gv->dest_object && !gv->keep_trailing_zeros) {
+    for (ls=(struct LinkedSection *)gv->lnksec.first;
+         ls->n.next!=NULL; ls=(struct LinkedSection *)ls->n.next) {
+      for (sec=(struct Section *)ls->sections.first;
+           sec->n.next!=NULL; sec=(struct Section *)sec->n.next) {
+        nextsec = (struct Section *)sec->n.next;
+        if (sec->data!=NULL && !(sec->flags & SF_UNINITIALIZED) &&
+            (nextsec->n.next==NULL || (nextsec->flags & SF_UNINITIALIZED))) {
+          /* This is the last initialized sub-section, so check for
+             trailing zero-bytes, which can be subtracted from filesize. */
+          unsigned long secinit = sec->size;
+          uint8_t *p = sec->data + secinit;
+
+          while (secinit>sec->last_reloc && *(--p)==0)
+            --secinit;
+          ls->filesize = sec->offset + secinit;
+          break;
+        }
+      }
+    }
+  }
+}
+
+
+void untrim_sections(struct GlobalVars *gv)
+{
+  struct LinkedSection *ls;
+
+  /* set filesize=size in all sections */
+  for (ls=(struct LinkedSection *)gv->lnksec.first;
+       ls->n.next!=NULL; ls=(struct LinkedSection *)ls->n.next)
+    ls->filesize = ls->size;
+}
+
+
+struct LinkedSection *load_next_section(struct GlobalVars *gv)
+/* return pointer to next section with lowest LMA and remove it from list */
+{
+  struct LinkedSection *ls = (struct LinkedSection *)gv->lnksec.first;
+  struct LinkedSection *nextls,*minls = NULL;
+
+  while (nextls = (struct LinkedSection *)ls->n.next) {
+    if (minls) {
+      if (ls->copybase < minls->copybase)
+        minls = ls;
+    }
+    else
+      minls = ls;
+    ls = nextls;
+  }
+  if (minls) {
+    remnode(&minls->n);
+  }
+  return minls;
 }

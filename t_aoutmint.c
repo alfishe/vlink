@@ -3,14 +3,6 @@
  * This file is part of vlink, a portable linker for multiple
  * object formats.
  * Copyright (c) 1997-2014  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2014 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
  */
 
 #include "config.h"
@@ -63,6 +55,7 @@ struct FFFuncs fff_aoutmint = {
   "aoutmint",
   mint_script,
   NULL,
+  NULL,
   aout_headersize,
   aoutmint_identify,
   aoutstd_readconv,
@@ -82,7 +75,7 @@ struct FFFuncs fff_aoutmint = {
   0,  /* MiNT uses MID 0 */
   RTAB_STANDARD,RTAB_STANDARD,
   _BIG_ENDIAN_,
-  32,
+  32,1,
   FFF_BASEINCR
 };
 

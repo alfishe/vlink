@@ -1,16 +1,8 @@
-/* $VER: vlink t_elf64.c V0.14 (29.07.11)
+/* $VER: vlink t_elf64.c V0.16f (05.08.20)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2011  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2011 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2020  Frank Wille
  */
 
 
@@ -25,12 +17,9 @@
 /* static data required for output file generation */
 static struct RelocList *reloclist;
 static struct Section *dynamic;
-/* .hash table */
-static struct SymbolNode **dyn_hash;
-static size_t dyn_hash_entries;
 /* stabs */
 static struct ShdrNode *stabshdr;
-static struct list stabcompunits;
+/*static struct list stabcompunits;*/
 static uint32_t stabdebugidx;
 
 
@@ -204,7 +193,7 @@ static void elf64_dynrefs(struct GlobalVars *gv,struct Elf64_Ehdr *ehdr,
     struct Elf64_Sym *sym = elf64_symtab(lf,ehdr,symndx) +
                             ELF64_R_SYM(read64(be,elfrel->r_info));
     uint32_t shndx = (uint32_t)read16(be,sym->st_shndx);
-    struct RelocInsert ri,*ri_ptr;
+    struct RelocInsert ri;
     uint8_t rtype;
 
     if (shndx == SHN_UNDEF || shndx == SHN_COMMON) {
@@ -215,8 +204,7 @@ static void elf64_dynrefs(struct GlobalVars *gv,struct Elf64_Ehdr *ehdr,
       r = newreloc(gv,sec,elf64_strtab(lf,ehdr,read32(be,symhdr->sh_link))
                    + read32(be,sym->st_name),
                    NULL,0,(unsigned long)read64(be,elfrel->r_offset),rtype,0);
-      for (ri_ptr=&ri; ri_ptr; ri_ptr=ri_ptr->next)
-        addreloc(sec,r,ri_ptr->bpos,ri_ptr->bsiz,ri_ptr->mask);
+      addreloc_ri(sec,r,&ri);
 
       /* referenced symbol is weak? */
       if (ELF64_ST_BIND(*sym->st_info)==STB_WEAK)
@@ -268,7 +256,7 @@ static void elf64_reloc(struct GlobalVars *gv,struct Elf64_Ehdr *ehdr,
     char *xrefname = NULL;
     struct Section *relsec=NULL;
     struct Reloc *r;
-    struct RelocInsert ri,*ri_ptr;
+    struct RelocInsert ri;
     lword a;
     uint8_t rtype;
 
@@ -281,10 +269,11 @@ static void elf64_reloc(struct GlobalVars *gv,struct Elf64_Ehdr *ehdr,
     if (is_rela)
       a = (lword)read64(be,elfrel->r_addend);
     else
-      a = readsection(gv,rtype,sec->data+offs,ri.bpos,ri.bsiz,ri.mask);
+      a = readsection(gv,rtype,sec->data+offs,&ri);
 
-    if (shndx == SHN_UNDEF || shndx == SHN_COMMON) {
-      /* undefined or common symbol - create external reference */
+    if (shndx == SHN_UNDEF || shndx == SHN_COMMON ||
+        ELF64_ST_BIND(*sym->st_info) == STB_WEAK) {
+      /* undefined, common or weak symbol - create external reference */
       xrefname = elf64_strtab(lf,ehdr,read32(be,symhdr->sh_link)) +
                               read32(be,sym->st_name);
       relsec = NULL;
@@ -307,12 +296,10 @@ static void elf64_reloc(struct GlobalVars *gv,struct Elf64_Ehdr *ehdr,
              ELF64_ST_TYPE(*sym->st_info));
 
     r = newreloc(gv,sec,xrefname,relsec,0,(unsigned long)offs,rtype,a);
-    for (ri_ptr=&ri; ri_ptr; ri_ptr=ri_ptr->next)
-      addreloc(sec,r,ri_ptr->bpos,ri_ptr->bsiz,ri_ptr->mask);
+    addreloc_ri(sec,r,&ri);
 
-    /* referenced symbol is weak? */
     if (xrefname!=NULL && ELF64_ST_BIND(*sym->st_info)==STB_WEAK)
-      r->flags |= RELF_WEAK;
+      r->flags |= RELF_WEAK;  /* referenced symbol is weak */
 
     /* make sure that section data reflects this addend for other formats */
     if (is_rela)
@@ -387,8 +374,10 @@ static void elf64_stabs(struct GlobalVars *gv,struct LinkFile *lf,
                 funsec = relsec;
                 funstart = val;
               }
+#if 0 /* @@@ N_FUN without a label in n_value seems legal? */
               else
                 ierror("%s: N_FUN without relocatable address",fn);
+#endif
             }
             else {  /* no name marks function end, still relative */
               relsec = funsec;
@@ -431,7 +420,7 @@ void elf64_parse(struct GlobalVars *gv,struct LinkFile *lf,
   struct ObjectUnit *u;
   struct Elf64_Shdr *shdr;
   uint16_t i,num_shdr,dynstr_idx,dynsym_idx;
-  char *shstrtab,*dynstrtab;
+  char *shstrtab;
   struct Elf64_Dyn *dyn;
 
   shstrtab = elf64_shstrtab(lf,ehdr);
@@ -489,7 +478,6 @@ void elf64_parse(struct GlobalVars *gv,struct LinkFile *lf,
 
 
     case ET_DYN:  /* shared object file */
-      dynstrtab = NULL;
       dyn = NULL;
       dynstr_idx = dynsym_idx = 0;
       num_shdr = read16(be,ehdr->e_shnum);
@@ -1134,7 +1122,8 @@ static size_t elf64_putdynreloc(struct GlobalVars *gv,struct LinkedSection *ls,
 
     if (ri = rel->insert)
       error(32,fff[gv->dest_format]->tname,reloc_name[rel->rtype],
-            (int)ri->bpos,(int)ri->bsiz,ri->mask,ls->name,rel->offset);
+            (int)ri->bpos,(int)ri->bsiz,(unsigned long long)ri->mask,
+            ls->name,rel->offset);
     else
       ierror("%s Reloc without insert-field",fn);
   }
@@ -1317,7 +1306,7 @@ static void elf64_makestabs(struct GlobalVars *gv)
           ierror("%s: .stab already in use",fn);
       }
       else
-        ls = create_lnksect(gv,".stab",ST_DATA,0,SP_READ,2);
+        ls = create_lnksect(gv,".stab",ST_DATA,0,SP_READ,2,0);
       ls->size = ls->filesize = stabsize;
       ls->data = (uint8_t *)nlst;
 

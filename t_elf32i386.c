@@ -1,16 +1,8 @@
-/* $VER: vlink t_elf32i386.c V0.13 (02.11.10)
+/* $VER: vlink t_elf32i386.c V0.15a (28.02.15)
  *
  * This file is part of vlink, a portable linker for multiple
  * object formats.
- * Copyright (c) 1997-2010  Frank Wille
- *
- * vlink is freeware and part of the portable and retargetable ANSI C
- * compiler vbcc, copyright (c) 1995-2010 by Volker Barthelmann.
- * vlink may be freely redistributed as long as no modifications are
- * made and nothing is charged for it. Non-commercial usage is allowed
- * without any restrictions.
- * EVERY PRODUCT OR PROGRAM DERIVED DIRECTLY FROM MY SOURCE MAY NOT BE
- * SOLD COMMERCIALLY WITHOUT PERMISSION FROM THE AUTHOR.
+ * Copyright (c) 1997-2015  Frank Wille
  */
 
 
@@ -37,6 +29,7 @@ struct FFFuncs fff_elf32i386 = {
   "elf32i386",
   NULL,
   NULL,
+  NULL,
   elf32_headersize,
   i386_identify,
   i386_readconv,
@@ -58,7 +51,7 @@ struct FFFuncs fff_elf32i386 = {
   0,
   RTAB_STANDARD,RTAB_STANDARD|RTAB_ADDEND,
   _LITTLE_ENDIAN_,
-  32
+  32,0
 };
 #endif  /* ELF32_386 */
 
@@ -75,6 +68,7 @@ static void aros_writeexec(struct GlobalVars *,FILE *);
 
 struct FFFuncs fff_elf32aros = {
   "elf32aros",
+  NULL,
   NULL,
   NULL,
   elf32_headersize,
@@ -96,7 +90,7 @@ struct FFFuncs fff_elf32aros = {
   0,
   RTAB_STANDARD,RTAB_STANDARD|RTAB_ADDEND,
   _LITTLE_ENDIAN_,
-  32
+  32,0
 };
 
 
@@ -163,9 +157,9 @@ static void i386_readconv(struct GlobalVars *gv,struct LinkFile *lf)
     if (ar_init(&ai,(char *)lf->data,lf->length,lf->filename)) {
       while (ar_extract(&ai)) {
         lf->objname = allocstring(ai.name);
-        elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
-                          ELFCLASS32,ELFDATA2LSB,ELF_VER,1,EM_386);
-        elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,i386_reloc_elf2vlink);
+        if (elf_check_ar_type(fff[lf->format],lf->pathname,ai.data,
+                              ELFCLASS32,ELFDATA2LSB,ELF_VER,1,EM_386))
+          elf32_parse(gv,lf,(struct Elf32_Ehdr *)ai.data,i386_reloc_elf2vlink);
       }
     }
     else
@@ -184,7 +178,6 @@ static struct Symbol *i386_dynentry(struct GlobalVars *gv,DynArg a,int etype)
 {
   struct Symbol *entry_sym = NULL;
   struct Section *sec;
-  char *bssname;
 
   switch (etype) {
 
@@ -231,7 +224,7 @@ static int aros_targetlink(struct GlobalVars *gv,struct LinkedSection *ls,
 /* returns -1, if target doesn't want to combine them, */
 /* returns 0, if target doesn't care - standard linking rules are used. */
 {
-  if (!gv->dest_object && !gv->use_ldscript) {
+  if (!gv->use_ldscript) {
     if ((!strncmp(ls->name,sdata_name,6) && !strncmp(s->name,sbss_name,5)
          && *(ls->name+6) == *(s->name+5)) ||
         (!strncmp(ls->name,sbss_name,5) && !strncmp(s->name,sdata_name,6)
