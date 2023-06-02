@@ -24,7 +24,7 @@ INSTALL = install
 include make.rules
 
 install: $(TARGET)
-	$(INSTALL) -D $(TARGET) $(DESTDIR)/bin/$(TARGET)
+	$(INSTALL) bin/$(TARGET) $(DESTDIR)/bin/$(TARGET)
 
 install-doc: vlink.pdf
-	$(INSTALL) -D vlink.pdf $(DESTDIR)/share/doc/vlink/vlink.pdf
+	$(INSTALL) vlink.pdf $(DESTDIR)/share/doc/vlink/vlink.pdf

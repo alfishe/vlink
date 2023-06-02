@@ -1,3 +1,7 @@
+MKDIR = mkdir -p
+RM = rm -f
+INSTALL = install
+
 vlinkobjects = $(DIR)/main.o $(DIR)/support.o $(DIR)/errors.o \
                $(DIR)/linker.o $(DIR)/dir.o $(DIR)/targets.o $(DIR)/ar.o \
                $(DIR)/ldscript.o $(DIR)/pmatch.o $(DIR)/expr.o \
@@ -12,9 +16,12 @@ vlinkobjects = $(DIR)/main.o $(DIR)/support.o $(DIR)/errors.o \
                $(DIR)/t_rawbin.o $(DIR)/t_rawseg.o $(DIR)/t_vobj.o
 all: $(TARGET)
 
-$(TARGET): $(DIR) $(vlinkobjects)
+$(TARGET): bin $(DIR) $(vlinkobjects)
 	$(CC) $(CCOUT)$(DIR)/version.o $(COPTS) $(CONFIG) version.c
-	$(LD) $(LDOUT)$(TARGET) $(LDOPTS) $(vlinkobjects) $(DIR)/version.o $(LIBS)
+	$(LD) $(LDOUT)bin/$(TARGET) $(LDOPTS) $(vlinkobjects) $(DIR)/version.o $(LIBS)
+
+bin:
+	$(MKDIR) bin
 
 clean:
 	rm -f $(TARGET)
